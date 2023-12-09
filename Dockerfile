@@ -33,10 +33,9 @@ RUN mkdir -p "$FILE_STORAGE_LOCAL_ROOT_DIR" && \
   chown -R nodejs:nodejs "$FILE_STORAGE_LOCAL_ROOT_DIR" && \
   chmod 1777 "$FILE_STORAGE_LOCAL_ROOT_DIR"
 
-VOLUME /var/lib/outline/data
+# VOLUME /var/lib/outline/data
 
 USER nodejs
 
 EXPOSE 3000
-CMD ["sleep 5s"]
-CMD ["yarn", "start"]
+CMD ["sleep 5s", "yarn", "start"]
