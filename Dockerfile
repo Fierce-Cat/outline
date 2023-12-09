@@ -25,4 +25,5 @@ RUN addgroup -g 1001 -S nodejs && \
 USER nodejs
 
 EXPOSE 3000
+CMD ["sleep 5s"]
 CMD ["yarn", "start"]
