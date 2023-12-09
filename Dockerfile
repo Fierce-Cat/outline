@@ -38,5 +38,5 @@ RUN mkdir -p "$FILE_STORAGE_LOCAL_ROOT_DIR" && \
 USER nodejs
 
 EXPOSE 3000
-CMD ["sleep", "5s"]
+RUN sleep 5
 CMD ["yarn", "start"]
