@@ -64,7 +64,7 @@ class View extends IdModel {
 
     if (!created) {
       model.count += 1;
-      model.save(options);
+      await model.save(options);
     }
 
     return model;
@@ -82,7 +82,6 @@ class View extends IdModel {
       include: [
         {
           model: User,
-          paranoid: false,
           required: true,
           ...(includeSuspended
             ? {}

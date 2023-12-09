@@ -1,109 +1,265 @@
 /* eslint-disable no-irregular-whitespace */
-import { darken, lighten, transparentize } from "polished";
-import styled, { DefaultTheme } from "styled-components";
-import depths from "../../styles/depths";
+import { lighten, transparentize } from "polished";
+import styled, { DefaultTheme, css, keyframes } from "styled-components";
+import { videoStyle } from "./Video";
 
 export type Props = {
   rtl: boolean;
   readOnly?: boolean;
   readOnlyWriteCheckboxes?: boolean;
+  staticHTML?: boolean;
   editorStyle?: React.CSSProperties;
   grow?: boolean;
   theme: DefaultTheme;
 };
 
-const mathStyle = (props: Props) => `
-/* Based on https://github.com/benrbray/prosemirror-math/blob/master/style/math.css */
+export const pulse = keyframes`
+  0% { box-shadow: 0 0 0 1px rgba(255, 213, 0, 0.75) }
+  50% { box-shadow: 0 0 0 4px rgba(255, 213, 0, 0.75) }
+  100% { box-shadow: 0 0 0 1px rgba(255, 213, 0, 0.75) }
+`;
 
-.math-node {
-  min-width: 1em;
-  min-height: 1em;
-  font-size: 0.95em;
-  font-family: ${props.theme.fontFamilyMono};
-  cursor: auto;
-}
+const codeMarkCursor = () => css`
+  /* Based on https://github.com/curvenote/editor/blob/main/packages/prosemirror-codemark/src/codemark.css */
+  .no-cursor {
+    caret-color: transparent;
+  }
 
-.math-node.empty-math .math-render::before {
-  content: "(empty math)";
-  color: ${props.theme.brand.red};
-}
+  div:focus .fake-cursor,
+  span:focus .fake-cursor {
+    margin-right: -1px;
+    border-left-width: 1px;
+    border-left-style: solid;
+    animation: ProseMirror-cursor-blink 1.1s steps(2, start) infinite;
+    position: relative;
+    z-index: 1;
+  }
+`;
 
-.math-node .math-render.parse-error::before {
-  content: "(math error)";
-  color: ${props.theme.brand.red};
-  cursor: help;
-}
+const mathStyle = (props: Props) => css`
+  /* Based on https://github.com/benrbray/prosemirror-math/blob/master/style/math.css */
 
-.math-node.ProseMirror-selectednode {
-  outline: none;
-}
+  .math-node {
+    min-width: 1em;
+    min-height: 1em;
+    font-size: 0.95em;
+    font-family: ${props.theme.fontFamilyMono};
+    cursor: auto;
+  }
 
-.math-node .math-src {
-  display: none;
-  color: ${props.theme.codeStatement};
-  tab-size: 4;
-}
+  .math-node.empty-math .math-render::before {
+    content: "Empty math";
+    color: ${props.theme.placeholder};
+    font-size: 14px;
+  }
 
-.math-node.ProseMirror-selectednode .math-src {
-  display: inline;
-}
+  .math-node .math-render.parse-error::before {
+    content: "(math error)";
+    color: ${props.theme.brand.red};
+    cursor: help;
+  }
 
-.math-node.ProseMirror-selectednode .math-render {
-  display: none;
-}
+  .math-node.ProseMirror-selectednode {
+    outline: none;
+  }
 
-math-inline {
-  display: inline; white-space: nowrap;
+  .math-node .math-src {
+    display: none;
+    color: ${props.theme.codeStatement};
+    tab-size: 4;
+  }
 
-}
+  .math-node.ProseMirror-selectednode .math-src {
+    display: inline;
+  }
 
-math-inline .math-render {
-  display: inline-block;
-  font-size: 0.85em;
-}
+  .math-node.ProseMirror-selectednode .math-render {
+    display: none;
+  }
 
-math-inline .math-src .ProseMirror {
-  display: inline;
-  margin: 0px 3px;
-}
+  math-inline {
+    display: inline;
+    white-space: nowrap;
+  }
 
-math-block {
-  display: block;
-}
+  math-inline .math-render {
+    display: inline-block;
+    font-size: 0.85em;
+  }
 
-math-block .math-render {
-  display: block;
-}
+  math-inline .math-src .ProseMirror {
+    display: inline;
+    margin: 0px 3px;
+  }
 
-math-block.ProseMirror-selectednode {
-  border-radius: 4px;
-  border: 1px solid ${props.theme.codeBorder};
-  background: ${props.theme.codeBackground};
-  padding: 0.75em 1em;
-  font-family: ${props.theme.fontFamilyMono};
-  font-size: 90%;
-}
+  math-block {
+    display: block;
+  }
 
-math-block .math-src .ProseMirror {
-  width: 100%;
-  display: block;
-}
+  math-block .math-render {
+    display: block;
+  }
 
-math-block .katex-display {
-  margin: 0;
-}
+  math-block.ProseMirror-selectednode,
+  math-block.empty-math {
+    border-radius: 4px;
+    border: 1px solid ${props.theme.codeBorder};
+    background: ${props.theme.codeBackground};
+    padding: 0.75em 1em;
+    font-family: ${props.theme.fontFamilyMono};
+    font-size: 90%;
+  }
 
-.katex-html *::selection {
-  background-color: none !important;
-}
+  math-block.empty-math {
+    text-align: center;
+  }
 
-.math-node.math-select .math-render {
-  background-color: #c0c0c0ff;
-}
+  math-block .math-src .ProseMirror {
+    width: 100%;
+    display: block;
+  }
 
-math-inline.math-select .math-render {
-  padding-top: 2px;
-}
+  math-block .katex-display {
+    margin: 0;
+  }
+
+  .katex-html *::selection {
+    background-color: none !important;
+  }
+
+  .math-node.math-select .math-render {
+    background-color: #c0c0c0ff;
+  }
+
+  math-inline.math-select .math-render {
+    padding-top: 2px;
+  }
+`;
+
+const codeBlockStyle = (props: Props) => css`
+  .token.comment,
+  .token.prolog,
+  .token.doctype,
+  .token.cdata {
+    color: ${props.theme.codeComment};
+  }
+
+  .token.punctuation {
+    color: ${props.theme.codePunctuation};
+  }
+
+  .token.namespace {
+    opacity: 0.7;
+  }
+
+  .token.operator,
+  .token.boolean,
+  .token.number {
+    color: ${props.theme.codeNumber};
+  }
+
+  .token.property {
+    color: ${props.theme.codeProperty};
+  }
+
+  .token.tag {
+    color: ${props.theme.codeTag};
+  }
+
+  .token.string {
+    color: ${props.theme.codeString};
+  }
+
+  .token.selector {
+    color: ${props.theme.codeSelector};
+  }
+
+  .token.attr-name {
+    color: ${props.theme.codeAttr};
+  }
+
+  .token.entity,
+  .token.url,
+  .language-css .token.string,
+  .style .token.string {
+    color: ${props.theme.codeEntity};
+  }
+
+  .token.attr-value,
+  .token.keyword,
+  .token.control,
+  .token.directive,
+  .token.unit {
+    color: ${props.theme.codeKeyword};
+  }
+
+  .token.function,
+  .token.class-name-definition {
+    color: ${props.theme.codeFunction};
+  }
+
+  .token.class-name {
+    color: ${props.theme.codeClassName};
+  }
+
+  .token.statement,
+  .token.regex,
+  .token.atrule {
+    color: ${props.theme.codeStatement};
+  }
+
+  .token.placeholder,
+  .token.variable {
+    color: ${props.theme.codePlaceholder};
+  }
+
+  .token.deleted {
+    text-decoration: line-through;
+  }
+
+  .token.inserted {
+    border-bottom: 1px dotted ${props.theme.codeInserted};
+    text-decoration: none;
+  }
+
+  .token.italic {
+    font-style: italic;
+  }
+
+  .token.important,
+  .token.bold {
+    font-weight: bold;
+  }
+
+  .token.important {
+    color: ${props.theme.codeImportant};
+  }
+
+  .token.entity {
+    cursor: help;
+  }
+`;
+
+const findAndReplaceStyle = () => css`
+  .find-result {
+    background: rgba(255, 213, 0, 0.25);
+
+    &.current-result {
+      background: rgba(255, 213, 0, 0.75);
+      animation: ${pulse} 150ms 1;
+    }
+  }
+`;
+
+const emailStyle = (props: Props) => css`
+  .attachment {
+    display: block;
+    color: ${props.theme.text} !important;
+    box-shadow: 0 0 0 1px ${props.theme.divider};
+    white-space: nowrap;
+    border-radius: 8px;
+    padding: 6px 8px;
+  }
 `;
 
 const style = (props: Props) => `
@@ -111,9 +267,9 @@ flex-grow: ${props.grow ? 1 : 0};
 justify-content: start;
 color: ${props.theme.text};
 font-family: ${props.theme.fontFamily};
-font-weight: ${props.theme.fontWeight};
+font-weight: ${props.theme.fontWeightRegular};
 font-size: 1em;
-line-height: 1.6em;
+line-height: -0.011;
 width: 100%;
 
 .mention {
@@ -125,6 +281,7 @@ width: 100%;
   padding-right: 4px;
   font-weight: 500;
   font-size: 0.9em;
+  cursor: default;
 }
 
 > div {
@@ -141,11 +298,13 @@ width: 100%;
   word-wrap: break-word;
   white-space: pre-wrap;
   white-space: break-spaces;
-  -webkit-font-variant-ligatures: none;
-  font-variant-ligatures: none;
-  font-feature-settings: "liga" 0; /* the above doesn't seem to work in Edge */
   padding: ${props.editorStyle?.padding ?? "initial"};
   margin: ${props.editorStyle?.margin ?? "initial"};
+
+  .ProseMirror {
+    padding: 0;
+    margin: 0;
+  }
 
   & > .ProseMirror-yjs-cursor {
     display: none;
@@ -180,12 +339,12 @@ width: 100%;
 
   // all of heading sizes are stepped down one from global styles, except h1
   // which is between h1 and h2
-  h1 { font-size: 1.75em; }
-  h2 { font-size: 1.25em; }
-  h3 { font-size: 1em; }
-  h4 { font-size: 0.875em; }
-  h5 { font-size: 0.75em; }
-  h6 { font-size: 0.75em; }
+  h1 { font-size: 28px; }
+  h2 { font-size: 22px; }
+  h3 { font-size: 18px; }
+  h4 { font-size: 16px; }
+  h5 { font-size: 15px; }
+  h6 { font-size: 15px; }
 
   .ProseMirror-yjs-cursor {
     position: relative;
@@ -244,7 +403,8 @@ li {
   position: relative;
 }
 
-.image {
+.image,
+.video {
   line-height: 0;
   text-align: center;
   max-width: 100%;
@@ -252,10 +412,16 @@ li {
   position: relative;
   z-index: 1;
 
-  img {
+  img,
+  video {
     pointer-events: ${props.readOnly ? "initial" : "none"};
     display: inline-block;
     max-width: 100%;
+  }
+
+  video {
+    pointer-events: initial;
+    ${videoStyle}
   }
 
   .ProseMirror-selectednode img {
@@ -263,13 +429,55 @@ li {
   }
 }
 
-.image.placeholder {
+.image.placeholder,
+.video.placeholder {
   position: relative;
   background: ${props.theme.background};
   margin-bottom: calc(28px + 1.2em);
 
-  img {
+  img,
+  video {
     opacity: 0.5;
+  }
+
+  video {
+    border-radius: 8px;
+  }
+}
+
+.file.placeholder {
+  display: flex;
+  align-items: center;
+  background: ${props.theme.background};
+  box-shadow: 0 0 0 1px ${props.theme.divider};
+  white-space: nowrap;
+  border-radius: 8px;
+  padding: 6px 8px;
+  max-width: 840px;
+  cursor: default;
+
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+
+  .title,
+  .subtitle {
+    margin-left: 8px;
+  }
+
+  .title {
+    font-weight: 600;
+    font-size: 14px;
+    color:  ${props.theme.text};
+  }
+
+  .subtitle {
+    font-size: 13px;
+    color: ${props.theme.textTertiary};
+    line-height: 0;
+  }
+
+  span {
+    font-family: ${props.theme.fontFamilyMono};
   }
 }
 
@@ -304,7 +512,7 @@ li {
 
   img {
     max-width: 100vw;
-    max-height: 50vh;
+    max-height: min(450px, 50vh);
     object-fit: cover;
     object-position: center;
   }
@@ -501,7 +709,6 @@ h6:not(.placeholder):before {
 
 .heading-actions {
   opacity: 0;
-  z-index: ${depths.editorHeadingActions};
   background: ${props.theme.background};
   margin-${props.rtl ? "right" : "left"}: -26px;
   flex-direction: ${props.rtl ? "row-reverse" : "row"};
@@ -578,6 +785,7 @@ h6 {
   border-radius: 2px;
 
   &:hover {
+    ${props.readOnly ? "cursor: var(--pointer);" : ""}
     background: ${transparentize(0.5, props.theme.brand.marine)};
   }
 }
@@ -740,7 +948,7 @@ a:hover {
 ul,
 ol {
   margin: ${props.rtl ? "0 -26px 0 0.1em" : "0 0.1em 0 -26px"};
-  padding: ${props.rtl ? "0 44px 0 0" : "0 0 0 44px"};
+  padding: ${props.rtl ? "0 48px 0 0" : "0 0 0 48px"};
 }
 
 ol ol {
@@ -913,106 +1121,31 @@ mark {
   height: 16px;
 }
 
-.code-actions,
-.notice-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  position: absolute;
-  z-index: 1;
-  top: 8px;
-  right: 8px;
-}
-
-.notice-actions {
-  ${props.rtl ? "left" : "right"}: 8px;
-}
-
-.code-block,
-.notice-block {
+.code-block {
   position: relative;
+}
 
-  select,
-  button {
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: ${props.theme.buttonNeutralBackground};
-    color: ${props.theme.buttonNeutralText};
-    box-shadow: rgba(0, 0, 0, 0.07) 0px 1px 2px, ${
-      props.theme.buttonNeutralBorder
-    } 0 0 0 1px inset;
-    border-radius: 4px;
-    font-size: 13px;
-    font-weight: 500;
-    text-decoration: none;
-    flex-shrink: 0;
-    cursor: var(--pointer);
-    user-select: none;
-    appearance: none !important;
-    padding: 6px 8px;
-    display: none;
-
-    &::-moz-focus-inner {
-      padding: 0;
-      border: 0;
-    }
-
-    &:hover:not(:disabled) {
-      background-color: ${darken(0.05, props.theme.buttonNeutralBackground)};
-      box-shadow: rgba(0, 0, 0, 0.07) 0px 1px 2px, ${
-        props.theme.buttonNeutralBorder
-      } 0 0 0 1px inset;
-    }
+.code-block[data-language=mermaidjs] {
+  pre {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: -12px;
+    overflow: hidden;
   }
 
-  select {
-    background-image: url('data:image/svg+xml;utf8,<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"> <path fill-rule="evenodd" clip-rule="evenodd" d="M9.03087 9C8.20119 9 7.73238 9.95209 8.23824 10.6097L11.2074 14.4696C11.6077 14.99 12.3923 14.99 12.7926 14.4696L15.7618 10.6097C16.2676 9.95209 15.7988 9 14.9691 9L9.03087 9Z" fill="currentColor"/> </svg>');
-    background-repeat: no-repeat;
-    background-position: center right;
-    padding-right: 20px;
+  /* Hide code without display none so toolbar can still be positioned against it */
+  &:not(.code-active) {
+    height: ${props.staticHTML ? "auto" : "0"};
+    margin: -0.5em 0;
+    overflow: hidden;
   }
+}
 
-  &:focus-within,
-  &:hover {
-    select {
-      display: ${props.readOnly ? "none" : "inline"};
-    }
-
-    button {
-      display: inline;
-    }
-  }
-
-  select:focus,
-  select:active,
-  button:focus,
-  button:active {
-    display: inline;
-  }
-
-  button.show-source-button {
-    display: none;
-  }
-  button.show-diagram-button {
-    display: inline;
-  }
-
-  &.code-hidden {
-    button,
-    select,
-    button.show-diagram-button {
-      display: none;
-    }
-
-    button.show-source-button {
-      display: inline;
-    }
-
-    pre {
-      display: none;
-    }
-  }
+/* Hide code without display none so toolbar can still be positioned against it */
+.ProseMirror[contenteditable="false"] .code-block[data-language=mermaidjs] {
+  height: ${props.staticHTML ? "auto" : "0"};
+  margin: -0.5em 0;
+  overflow: hidden;
 }
 
 .code-block.with-line-numbers {
@@ -1023,7 +1156,8 @@ mark {
   &:after {
     content: attr(data-line-numbers);
     position: absolute;
-    left: 1em;
+    padding-left: 0.5em;
+    left: 1px;
     top: calc(1px + 0.75em);
     width: calc(var(--line-number-gutter-width,0) * 1em + .25em);
     word-break: break-all;
@@ -1032,6 +1166,7 @@ mark {
     font-size: 13px;
     line-height: 1.4em;
     color: ${props.theme.textTertiary};
+    background: ${props.theme.codeBackground};
     text-align: right;
     font-variant-numeric: tabular-nums;
     user-select: none;
@@ -1042,6 +1177,7 @@ mark {
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 1.6em;
   background: ${props.theme.codeBackground};
   border-radius: 6px;
   border: 1px solid ${props.theme.codeBorder};
@@ -1053,8 +1189,16 @@ mark {
     font-family: ${props.theme.fontFamily};
   }
 
-  &.diagram-hidden {
-    display: none;
+  &.empty {
+    font-family: ${props.theme.fontFamilyMono};
+    font-size: 14px;
+    color: ${props.theme.placeholder};
+  }
+
+  &.parse-error {
+    font-family: ${props.theme.fontFamilyMono};
+    font-size: 14px;
+    color: ${props.theme.brand.red};
   }
 }
 
@@ -1092,103 +1236,6 @@ pre {
     padding: 0;
     border: 0;
   }
-}
-
-.token.comment,
-.token.prolog,
-.token.doctype,
-.token.cdata {
-  color: ${props.theme.codeComment};
-}
-
-.token.punctuation {
-  color: ${props.theme.codePunctuation};
-}
-
-.token.namespace {
-  opacity: 0.7;
-}
-
-.token.operator,
-.token.boolean,
-.token.number {
-  color: ${props.theme.codeNumber};
-}
-
-.token.property {
-  color: ${props.theme.codeProperty};
-}
-
-.token.tag {
-  color: ${props.theme.codeTag};
-}
-
-.token.string {
-  color: ${props.theme.codeString};
-}
-
-.token.selector {
-  color: ${props.theme.codeSelector};
-}
-
-.token.attr-name {
-  color: ${props.theme.codeAttr};
-}
-
-.token.entity,
-.token.url,
-.language-css .token.string,
-.style .token.string {
-  color: ${props.theme.codeEntity};
-}
-
-.token.attr-value,
-.token.keyword,
-.token.control,
-.token.directive,
-.token.unit {
-  color: ${props.theme.codeKeyword};
-}
-
-.token.function {
-  color: ${props.theme.codeFunction};
-}
-
-.token.statement,
-.token.regex,
-.token.atrule {
-  color: ${props.theme.codeStatement};
-}
-
-.token.placeholder,
-.token.variable {
-  color: ${props.theme.codePlaceholder};
-}
-
-.token.deleted {
-  text-decoration: line-through;
-}
-
-.token.inserted {
-  border-bottom: 1px dotted ${props.theme.codeInserted};
-  text-decoration: none;
-}
-
-.token.italic {
-  font-style: italic;
-}
-
-.token.important,
-.token.bold {
-  font-weight: bold;
-}
-
-.token.important {
-  color: ${props.theme.codeImportant};
-}
-
-.token.entity {
-  cursor: help;
 }
 
 table {
@@ -1243,7 +1290,7 @@ table {
      * https://github.com/ProseMirror/prosemirror/issues/947 */
     &::after {
       content: "";
-      cursor: pointer;
+      cursor: var(--pointer);
       position: absolute;
       top: -16px;
       ${props.rtl ? "right" : "left"}: 0;
@@ -1271,7 +1318,7 @@ table {
   .grip-row {
     &::after {
       content: "";
-      cursor: pointer;
+      cursor: var(--pointer);
       position: absolute;
       ${props.rtl ? "right" : "left"}: -16px;
       top: 0;
@@ -1300,7 +1347,7 @@ table {
   .grip-table {
     &::after {
       content: "";
-      cursor: pointer;
+      cursor: var(--pointer);
       background: ${props.theme.tableDivider};
       width: 13px;
       height: 13px;
@@ -1437,7 +1484,8 @@ table {
   animation: ProseMirror-cursor-blink 1.1s steps(2, start) infinite;
 }
 
-.folded-content {
+.folded-content,
+.folded-content + .mermaid-diagram-wrapper {
   display: none;
 }
 
@@ -1512,8 +1560,12 @@ del[data-operation-index] {
 `;
 
 const EditorContainer = styled.div<Props>`
-  ${style};
-  ${mathStyle};
+  ${style}
+  ${mathStyle}
+  ${codeMarkCursor}
+  ${codeBlockStyle}
+  ${findAndReplaceStyle}
+  ${emailStyle}
 `;
 
 export default EditorContainer;

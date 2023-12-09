@@ -1,10 +1,10 @@
 import { observer } from "mobx-react";
 import * as React from "react";
+import { toast } from "sonner";
 import Button from "~/components/Button";
 import Flex from "~/components/Flex";
 import Text from "~/components/Text";
 import useStores from "~/hooks/useStores";
-import useToasts from "~/hooks/useToasts";
 
 type Props = {
   /** Callback when the dialog is submitted */
@@ -17,6 +17,7 @@ type Props = {
   danger?: boolean;
   /** Keep the submit button disabled */
   disabled?: boolean;
+  children?: React.ReactNode;
 };
 
 const ConfirmationDialog: React.FC<Props> = ({
@@ -26,10 +27,9 @@ const ConfirmationDialog: React.FC<Props> = ({
   savingText,
   danger,
   disabled = false,
-}) => {
+}: Props) => {
   const [isSaving, setIsSaving] = React.useState(false);
   const { dialogs } = useStores();
-  const { showToast } = useToasts();
 
   const handleSubmit = React.useCallback(
     async (ev: React.SyntheticEvent) => {
@@ -39,14 +39,12 @@ const ConfirmationDialog: React.FC<Props> = ({
         await onSubmit();
         dialogs.closeAllModals();
       } catch (err) {
-        showToast(err.message, {
-          type: "error",
-        });
+        toast.error(err.message);
       } finally {
         setIsSaving(false);
       }
     },
-    [onSubmit, dialogs, showToast]
+    [onSubmit, dialogs]
   );
 
   return (

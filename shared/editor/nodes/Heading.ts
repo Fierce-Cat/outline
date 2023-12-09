@@ -6,13 +6,14 @@ import {
   NodeType,
   Schema,
 } from "prosemirror-model";
-import { Plugin, Selection } from "prosemirror-state";
+import { Command, Plugin, Selection } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
+import { toast } from "sonner";
+import { Primitive } from "utility-types";
 import Storage from "../../utils/Storage";
 import backspaceToParagraph from "../commands/backspaceToParagraph";
 import splitHeading from "../commands/splitHeading";
 import toggleBlockType from "../commands/toggleBlockType";
-import { Command } from "../lib/Extension";
 import headingToSlug, { headingToPersistenceKey } from "../lib/headingToSlug";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
 import { FoldingHeadersPlugin } from "../plugins/FoldingHeaders";
@@ -49,7 +50,8 @@ export default class Heading extends Node {
       parseDOM: this.options.levels.map((level: number) => ({
         tag: `h${level}`,
         attrs: { level },
-        contentElement: ".heading-content",
+        contentElement: (node: HTMLHeadingElement) =>
+          node.querySelector(".heading-content") || node,
       })),
       toDOM: (node) => {
         let anchor, fold;
@@ -113,13 +115,16 @@ export default class Heading extends Node {
   }
 
   commands({ type, schema }: { type: NodeType; schema: Schema }) {
-    return (attrs: Record<string, any>) =>
+    return (attrs: Record<string, Primitive>) =>
       toggleBlockType(type, schema.nodes.paragraph, attrs);
   }
 
   handleFoldContent = (event: MouseEvent) => {
     event.preventDefault();
-    if (!(event.currentTarget instanceof HTMLButtonElement)) {
+    if (
+      !(event.currentTarget instanceof HTMLButtonElement) ||
+      event.button !== 0
+    ) {
       return;
     }
 
@@ -184,7 +189,7 @@ export default class Heading extends Node {
       .replace("/edit", "");
     copy(normalizedUrl + hash);
 
-    this.options.onShowToast(this.options.dictionary.linkCopied);
+    toast.message(this.options.dictionary.linkCopied);
   };
 
   keys({ type, schema }: { type: NodeType; schema: Schema }) {

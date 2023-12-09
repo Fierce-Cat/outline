@@ -1,15 +1,13 @@
 import { NotificationEventType } from "@shared/types";
 import subscriptionCreator from "@server/commands/subscriptionCreator";
-import { sequelize } from "@server/database/sequelize";
 import { Comment, Document, Notification, User } from "@server/models";
 import NotificationHelper from "@server/models/helpers/NotificationHelper";
 import ProsemirrorHelper from "@server/models/helpers/ProsemirrorHelper";
+import { sequelize } from "@server/storage/database";
 import { CommentEvent } from "@server/types";
 import BaseTask, { TaskPriority } from "./BaseTask";
 
-export default class CommentCreatedNotificationsTask extends BaseTask<
-  CommentEvent
-> {
+export default class CommentCreatedNotificationsTask extends BaseTask<CommentEvent> {
   public async perform(event: CommentEvent) {
     const [document, comment] = await Promise.all([
       Document.scope("withCollection").findOne({
@@ -42,6 +40,10 @@ export default class CommentCreatedNotificationsTask extends BaseTask<
     const userIdsMentioned: string[] = [];
 
     for (const mention of mentions) {
+      if (userIdsMentioned.includes(mention.modelId)) {
+        continue;
+      }
+
       const recipient = await User.findByPk(mention.modelId);
 
       if (

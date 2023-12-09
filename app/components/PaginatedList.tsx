@@ -1,11 +1,11 @@
-import { isEqual } from "lodash";
+import isEqual from "lodash/isEqual";
 import { observable, action } from "mobx";
 import { observer } from "mobx-react";
 import * as React from "react";
 import { withTranslation, WithTranslation } from "react-i18next";
 import { Waypoint } from "react-waypoint";
 import { CompositeStateReturn } from "reakit/Composite";
-import { DEFAULT_PAGINATION_LIMIT } from "~/stores/BaseStore";
+import { Pagination } from "@shared/constants";
 import RootStore from "~/stores/RootStore";
 import ArrowKeyNavigation from "~/components/ArrowKeyNavigation";
 import DelayedMount from "~/components/DelayedMount";
@@ -70,7 +70,7 @@ class PaginatedList<T extends PaginatedItem> extends React.Component<Props<T>> {
   allowLoadMore = true;
 
   componentDidMount() {
-    this.fetchResults();
+    void this.fetchResults();
   }
 
   componentDidUpdate(prevProps: Props<T>) {
@@ -79,14 +79,14 @@ class PaginatedList<T extends PaginatedItem> extends React.Component<Props<T>> {
       !isEqual(prevProps.options, this.props.options)
     ) {
       this.reset();
-      this.fetchResults();
+      void this.fetchResults();
     }
   }
 
   reset = () => {
     this.offset = 0;
     this.allowLoadMore = true;
-    this.renderCount = DEFAULT_PAGINATION_LIMIT;
+    this.renderCount = Pagination.defaultLimit;
     this.isFetching = false;
     this.isFetchingInitial = false;
     this.isFetchingMore = false;
@@ -99,7 +99,7 @@ class PaginatedList<T extends PaginatedItem> extends React.Component<Props<T>> {
     }
     this.isFetching = true;
     const counter = ++this.fetchCounter;
-    const limit = this.props.options?.limit ?? DEFAULT_PAGINATION_LIMIT;
+    const limit = this.props.options?.limit ?? Pagination.defaultLimit;
     this.error = undefined;
 
     try {
@@ -139,12 +139,12 @@ class PaginatedList<T extends PaginatedItem> extends React.Component<Props<T>> {
     const leftToRender = (this.props.items?.length ?? 0) - this.renderCount;
 
     if (leftToRender > 0) {
-      this.renderCount += DEFAULT_PAGINATION_LIMIT;
+      this.renderCount += Pagination.defaultLimit;
     }
 
     // If there are less than a pages results in the cache go ahead and fetch
     // another page from the server
-    if (leftToRender <= DEFAULT_PAGINATION_LIMIT) {
+    if (leftToRender <= Pagination.defaultLimit) {
       this.isFetchingMore = true;
       await this.fetchResults();
     }

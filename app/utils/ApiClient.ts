@@ -1,10 +1,8 @@
 import retry from "fetch-retry";
-import invariant from "invariant";
-import { trim } from "lodash";
+import trim from "lodash/trim";
 import queryString from "query-string";
 import EDITOR_VERSION from "@shared/editor/version";
 import stores from "~/stores";
-import isCloudHosted from "~/utils/isCloudHosted";
 import Logger from "./Logger";
 import download from "./download";
 import {
@@ -14,6 +12,7 @@ import {
   NetworkError,
   NotFoundError,
   OfflineError,
+  PaymentRequiredError,
   RateLimitExceededError,
   RequestError,
   ServiceUnavailableError,
@@ -95,14 +94,8 @@ class ApiClient {
     }
 
     const headers = new Headers(headerOptions);
-
-    if (stores.auth.authenticated) {
-      invariant(stores.auth.token, "JWT token not set properly");
-      headers.set("Authorization", `Bearer ${stores.auth.token}`);
-    }
-
-    let response;
     const timeStart = window.performance.now();
+    let response;
 
     try {
       response = await fetchWithRetry(urlToFetch, {
@@ -110,15 +103,7 @@ class ApiClient {
         body,
         headers,
         redirect: "follow",
-        // For the hosted deployment we omit cookies on API requests as they are
-        // not needed for authentication this offers a performance increase.
-        // For self-hosted we include them to support a wide variety of
-        // authenticated proxies, e.g. Pomerium, Cloudflare Access etc.
-        credentials: options.credentials
-          ? options.credentials
-          : isCloudHosted
-          ? "omit"
-          : "same-origin",
+        credentials: "same-origin",
         cache: "no-cache",
       });
     } catch (err) {
@@ -147,7 +132,7 @@ class ApiClient {
 
     // Handle 401, log out user
     if (response.status === 401) {
-      stores.auth.logout();
+      await stores.auth.logout(true, false);
       return;
     }
 
@@ -176,9 +161,13 @@ class ApiClient {
       throw new BadRequestError(error.message);
     }
 
+    if (response.status === 402) {
+      throw new PaymentRequiredError(error.message);
+    }
+
     if (response.status === 403) {
       if (error.error === "user_suspended") {
-        stores.auth.logout();
+        await stores.auth.logout(false, false);
         return;
       }
 

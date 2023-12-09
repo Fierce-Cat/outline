@@ -5,7 +5,9 @@ import breakpoint from "styled-components-breakpoint";
 import { s } from "@shared/styles";
 import { NavigationNode } from "@shared/types";
 import EventBoundary from "~/components/EventBoundary";
+import EmojiIcon from "~/components/Icons/EmojiIcon";
 import NudeButton from "~/components/NudeButton";
+import useUnmount from "~/hooks/useUnmount";
 import { undraggableOnDesktop } from "~/styles";
 import Disclosure from "./Disclosure";
 import NavLink, { Props as NavLinkProps } from "./NavLink";
@@ -20,15 +22,17 @@ type Props = Omit<NavLinkProps, "to"> & {
   to?: LocationDescriptor;
   innerRef?: (ref: HTMLElement | null | undefined) => void;
   onClick?: React.MouseEventHandler<HTMLAnchorElement>;
-  onMouseEnter?: React.MouseEventHandler<HTMLAnchorElement>;
+  /** Callback when we expect the user to click on the link. Used for prefetching data. */
+  onClickIntent?: () => void;
   onDisclosureClick?: React.MouseEventHandler<HTMLButtonElement>;
   icon?: React.ReactNode;
+  emoji?: string | null;
   label?: React.ReactNode;
   menu?: React.ReactNode;
   showActions?: boolean;
   disabled?: boolean;
   active?: boolean;
-  /* If set, a disclosure will be rendered to the left of any icon */
+  /** If set, a disclosure will be rendered to the left of any icon */
   expanded?: boolean;
   isActiveDrop?: boolean;
   isDraft?: boolean;
@@ -44,8 +48,9 @@ function SidebarLink(
   {
     icon,
     onClick,
-    onMouseEnter,
+    onClickIntent,
     to,
+    emoji,
     label,
     active,
     isActiveDrop,
@@ -63,6 +68,7 @@ function SidebarLink(
   }: Props,
   ref: React.RefObject<HTMLAnchorElement>
 ) {
+  const timer = React.useRef<number>();
   const theme = useTheme();
   const style = React.useMemo(
     () => ({
@@ -81,6 +87,28 @@ function SidebarLink(
     [theme.text, theme.sidebarActiveBackground, style]
   );
 
+  const handleMouseEnter = React.useCallback(() => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
+
+    if (onClickIntent) {
+      timer.current = window.setTimeout(onClickIntent, 100);
+    }
+  }, [onClickIntent]);
+
+  const handleMouseLeave = React.useCallback(() => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
+  }, []);
+
+  useUnmount(() => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
+  });
+
   return (
     <>
       <Link
@@ -90,7 +118,8 @@ function SidebarLink(
         activeStyle={isActiveDrop ? activeDropStyle : activeStyle}
         style={active ? activeStyle : style}
         onClick={onClick}
-        onMouseEnter={onMouseEnter}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         // @ts-expect-error exact does not exist on div
         exact={exact !== false}
         to={to}
@@ -110,6 +139,7 @@ function SidebarLink(
             />
           )}
           {icon && <IconWrapper>{icon}</IconWrapper>}
+          {emoji && <EmojiIcon emoji={emoji} />}
           <Label>{label}</Label>
         </Content>
       </Link>
@@ -126,6 +156,7 @@ const Content = styled.span`
 
   ${Disclosure} {
     margin-top: 2px;
+    margin-left: 2px;
   }
 `;
 
@@ -174,6 +205,7 @@ const Link = styled(NavLink)<{
   text-overflow: ellipsis;
   padding: 6px 16px;
   border-radius: 4px;
+  min-height: 32px;
   transition: background 50ms, color 50ms;
   user-select: none;
   background: ${(props) =>
@@ -265,7 +297,7 @@ const Label = styled.div`
   position: relative;
   width: 100%;
   max-height: 4.8em;
-  line-height: 1.6;
+  line-height: 24px;
 
   * {
     unicode-bidi: plaintext;

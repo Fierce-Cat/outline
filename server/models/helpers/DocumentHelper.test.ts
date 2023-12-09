@@ -1,8 +1,39 @@
 import Revision from "@server/models/Revision";
-import { buildDocument } from "@server/test/factories";
+import { buildDocument, buildUser } from "@server/test/factories";
 import DocumentHelper from "./DocumentHelper";
 
 describe("DocumentHelper", () => {
+  beforeAll(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(Date.parse("2021-01-01T00:00:00.000Z"));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  describe("replaceTemplateVariables", () => {
+    it("should replace {time} with current time", async () => {
+      const user = await buildUser();
+      const result = DocumentHelper.replaceTemplateVariables(
+        "Hello {time}",
+        user
+      );
+
+      expect(result).toBe("Hello 12 00 AM");
+    });
+
+    it("should replace {date} with current date", async () => {
+      const user = await buildUser();
+      const result = DocumentHelper.replaceTemplateVariables(
+        "Hello {date}",
+        user
+      );
+
+      expect(result).toBe("Hello January 1 2021");
+    });
+  });
+
   describe("parseMentions", () => {
     it("should not parse normal links as mentions", async () => {
       const document = await buildDocument({
@@ -113,6 +144,25 @@ same on both sides`,
       expect(html).not.toContain("this is a highlight");
     });
 
+    it("should return undefined if no diff is renderable", async () => {
+      const before = new Revision({
+        title: "Title",
+        text: `
+This is a test paragraph`,
+      });
+
+      const after = new Revision({
+        title: "Title",
+        text: `
+This is a [test paragraph](https://example.net)`,
+      });
+
+      // Note: This test may fail in the future when support for diffing marks
+      // is improved.
+      const html = await DocumentHelper.toEmailDiff(before, after);
+      expect(html).toBeUndefined();
+    });
+
     it("should trim table rows to show minimal diff including header", async () => {
       const before = new Revision({
         title: "Title",
@@ -174,7 +224,7 @@ This is a new paragraph.
 |    |    |    |`,
       });
 
-      const text = await DocumentHelper.toPlainText(revision);
+      const text = DocumentHelper.toPlainText(revision);
 
       // Strip all formatting
       expect(text).toEqual(`This is a test paragraph

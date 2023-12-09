@@ -1,5 +1,5 @@
-import { trim } from "lodash";
-import { action, computed, observable, runInAction } from "mobx";
+import trim from "lodash/trim";
+import { action, computed, observable, reaction, runInAction } from "mobx";
 import {
   CollectionPermission,
   FileOperationFormat,
@@ -8,11 +8,13 @@ import {
 import { sortNavigationNodes } from "@shared/utils/collections";
 import type CollectionsStore from "~/stores/CollectionsStore";
 import Document from "~/models/Document";
-import ParanoidModel from "~/models/ParanoidModel";
+import ParanoidModel from "~/models/base/ParanoidModel";
 import { client } from "~/utils/ApiClient";
 import Field from "./decorators/Field";
 
 export default class Collection extends ParanoidModel {
+  static modelName = "Collection";
+
   store: CollectionsStore;
 
   @observable
@@ -62,9 +64,26 @@ export default class Collection extends ParanoidModel {
   @observable
   documents?: NavigationNode[];
 
+  @observable
   url: string;
 
+  @observable
   urlId: string;
+
+  constructor(fields: Partial<Collection>, store: CollectionsStore) {
+    super(fields, store);
+
+    const resetDocumentPolicies = () => {
+      this.store.rootStore.documents
+        .inCollection(this.id)
+        .forEach((document) => {
+          this.store.rootStore.policies.remove(document.id);
+        });
+    };
+
+    reaction(() => this.permission, resetDocumentPolicies);
+    reaction(() => this.sharing, resetDocumentPolicies);
+  }
 
   @computed
   get isEmpty(): boolean | undefined {
@@ -107,6 +126,16 @@ export default class Collection extends ParanoidModel {
       return undefined;
     }
     return sortNavigationNodes(this.documents, this.sort);
+  }
+
+  /**
+   * The initial letter of the collection name.
+   *
+   * @returns string
+   */
+  @computed
+  get initial() {
+    return (this.name ? this.name[0] : "?").toUpperCase();
   }
 
   fetchDocuments = async (options?: { force: boolean }) => {
@@ -251,9 +280,10 @@ export default class Collection extends ParanoidModel {
   @action
   unstar = async () => this.store.unstar(this);
 
-  export = (format: FileOperationFormat) =>
+  export = (format: FileOperationFormat, includeAttachments: boolean) =>
     client.post("/collections.export", {
       id: this.id,
       format,
+      includeAttachments,
     });
 }

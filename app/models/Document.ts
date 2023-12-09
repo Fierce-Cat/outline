@@ -1,16 +1,18 @@
 import { addDays, differenceInDays } from "date-fns";
-import { floor } from "lodash";
+import i18n, { t } from "i18next";
+import floor from "lodash/floor";
 import { action, autorun, computed, observable, set } from "mobx";
 import { ExportContentType } from "@shared/types";
 import type { NavigationNode } from "@shared/types";
 import Storage from "@shared/utils/Storage";
-import parseTitle from "@shared/utils/parseTitle";
 import { isRTL } from "@shared/utils/rtl";
+import slugify from "@shared/utils/slugify";
 import DocumentsStore from "~/stores/DocumentsStore";
 import User from "~/models/User";
 import { client } from "~/utils/ApiClient";
-import ParanoidModel from "./ParanoidModel";
+import { settingsPath } from "~/utils/routeHelpers";
 import View from "./View";
+import ParanoidModel from "./base/ParanoidModel";
 import Field from "./decorators/Field";
 
 type SaveOptions = {
@@ -20,6 +22,8 @@ type SaveOptions = {
 };
 
 export default class Document extends ParanoidModel {
+  static modelName = "Document";
+
   constructor(fields: Record<string, any>, store: DocumentsStore) {
     super(fields, store);
 
@@ -46,60 +50,100 @@ export default class Document extends ParanoidModel {
 
   @Field
   @observable
-  collectionId?: string | null;
-
-  @Field
-  @observable
   id: string;
 
+  /**
+   * The id of the collection that this document belongs to, if any.
+   */
+  @Field
+  @observable
+  collectionId?: string | null;
+
+  /**
+   * The text content of the document as Markdown.
+   */
   @observable
   text: string;
 
+  /**
+   * The title of the document.
+   */
   @Field
   @observable
   title: string;
 
+  /**
+   * An emoji to use as the document icon.
+   */
+  @Field
+  @observable
+  emoji: string | undefined | null;
+
+  /**
+   * Whether this is a template.
+   */
   @observable
   template: boolean;
 
+  /**
+   * Whether the document layout is displayed full page width.
+   */
   @Field
   @observable
   fullWidth: boolean;
 
+  /**
+   * Whether team members can see who has viewed this document.
+   */
+  @observable
+  insightsEnabled: boolean;
+
+  /**
+   * A reference to the template that this document was created from.
+   */
   @Field
   @observable
   templateId: string | undefined;
 
+  /**
+   * The id of the parent document that this is a child of, if any.
+   */
   @Field
   @observable
   parentDocumentId: string | undefined;
 
+  @observable
   collaboratorIds: string[];
 
+  @observable
   createdBy: User;
 
+  @observable
   updatedBy: User;
 
+  @observable
   publishedAt: string | undefined;
 
+  @observable
   archivedAt: string;
 
+  /**
+   * @deprecated Use path instead
+   */
+  @observable
   url: string;
 
+  @observable
   urlId: string;
 
+  @observable
   tasks: {
     completed: number;
     total: number;
   };
 
+  @observable
   revision: number;
-
-  @computed
-  get emoji() {
-    const { emoji } = parseTitle(this.title);
-    return emoji;
-  }
 
   /**
    * Returns the direction of the document text, either "rtl" or "ltr"
@@ -118,13 +162,20 @@ export default class Document extends ParanoidModel {
   }
 
   @computed
-  get noun(): string {
-    return this.template ? "template" : "document";
+  get path(): string {
+    const prefix = this.template ? settingsPath("templates") : "/doc";
+
+    if (!this.title) {
+      return `${prefix}/untitled-${this.urlId}`;
+    }
+
+    const slugifiedTitle = slugify(this.title);
+    return `${prefix}/${slugifiedTitle}-${this.urlId}`;
   }
 
   @computed
-  get isOnlyTitle(): boolean {
-    return !this.text.trim();
+  get noun(): string {
+    return this.template ? t("template") : t("document");
   }
 
   @computed
@@ -193,11 +244,6 @@ export default class Document extends ParanoidModel {
   }
 
   @computed
-  get titleWithDefault(): string {
-    return this.title || "Untitled";
-  }
-
-  @computed
   get permanentlyDeletedAt(): string | undefined {
     if (!this.deletedAt) {
       return undefined;
@@ -228,6 +274,10 @@ export default class Document extends ParanoidModel {
     }
 
     return floor((this.tasks.completed / this.tasks.total) * 100);
+  }
+
+  get titleWithDefault(): string {
+    return this.title || i18n.t("Untitled");
   }
 
   @action
@@ -324,12 +374,18 @@ export default class Document extends ParanoidModel {
   templatize = () => this.store.templatize(this.id);
 
   @action
-  save = async (options?: SaveOptions | undefined) => {
-    const params = this.toAPI();
+  save = async (
+    fields?: Partial<Document> | undefined,
+    options?: SaveOptions | undefined
+  ) => {
+    const params = fields ?? this.toAPI();
     this.isSaving = true;
 
     try {
-      const model = await this.store.save({ ...params, id: this.id }, options);
+      const model = await this.store.save(
+        { ...params, ...fields, id: this.id },
+        options
+      );
 
       // if saving is successful set the new values on the model itself
       set(this, { ...params, ...model });
@@ -345,7 +401,8 @@ export default class Document extends ParanoidModel {
   move = (collectionId: string, parentDocumentId?: string | undefined) =>
     this.store.move(this.id, collectionId, parentDocumentId);
 
-  duplicate = () => this.store.duplicate(this);
+  duplicate = (options?: { title?: string; recursive?: boolean }) =>
+    this.store.duplicate(this, options);
 
   getSummary = (paragraphs = 4) => {
     const result = this.text.trim().split("\n").slice(0, paragraphs).join("\n");

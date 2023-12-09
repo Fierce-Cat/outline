@@ -1,4 +1,6 @@
-import { isEmpty } from "lodash";
+import emojiRegex from "emoji-regex";
+import formidable from "formidable";
+import isEmpty from "lodash/isEmpty";
 import isUUID from "validator/lib/isUUID";
 import { z } from "zod";
 import { SHARE_URL_SLUG_REGEX } from "@shared/utils/urlHelpers";
@@ -172,6 +174,23 @@ export const DocumentsSearchSchema = BaseSchema.extend({
 
 export type DocumentsSearchReq = z.infer<typeof DocumentsSearchSchema>;
 
+export const DocumentsDuplicateSchema = BaseSchema.extend({
+  body: BaseIdSchema.extend({
+    /** New document title */
+    title: z.string().optional(),
+    /** Whether child documents should also be duplicated */
+    recursive: z.boolean().optional(),
+    /** Whether the new document should be published */
+    publish: z.boolean().optional(),
+    /** Id of the collection to which the document should be copied */
+    collectionId: z.string().uuid().optional(),
+    /** Id of the parent document to which the document should be copied */
+    parentDocumentId: z.string().uuid().optional(),
+  }),
+});
+
+export type DocumentsDuplicateReq = z.infer<typeof DocumentsDuplicateSchema>;
+
 export const DocumentsTemplatizeSchema = BaseSchema.extend({
   body: BaseIdSchema,
 });
@@ -186,8 +205,14 @@ export const DocumentsUpdateSchema = BaseSchema.extend({
     /** Doc text to be updated */
     text: z.string().optional(),
 
+    /** Emoji displayed alongside doc title */
+    emoji: z.string().regex(emojiRegex()).nullish(),
+
     /** Boolean to denote if the doc should occupy full width */
     fullWidth: z.boolean().optional(),
+
+    /** Boolean to denote if insights should be visible on the doc */
+    insightsEnabled: z.boolean().optional(),
 
     /** Boolean to denote if the doc should be published */
     publish: z.boolean().optional(),
@@ -203,6 +228,9 @@ export const DocumentsUpdateSchema = BaseSchema.extend({
 
     /** Version of the API to be used */
     apiVersion: z.number().optional(),
+
+    /** Whether the editing session is complete */
+    done: z.boolean().optional(),
   }),
 }).refine((req) => !(req.body.append && !req.body.text), {
   message: "text is required while appending",
@@ -262,31 +290,46 @@ export const DocumentsImportSchema = BaseSchema.extend({
     /** Import under this parent doc */
     parentDocumentId: z.string().uuid().nullish(),
   }),
+  file: z.custom<formidable.File>(),
 });
 
 export type DocumentsImportReq = z.infer<typeof DocumentsImportSchema>;
 
 export const DocumentsCreateSchema = BaseSchema.extend({
   body: z.object({
-    /** Doc title */
+    /** Document title */
     title: z.string().default(""),
 
-    /** Doc text */
+    /** Document text */
     text: z.string().default(""),
+
+    /** Emoji displayed alongside doc title */
+    emoji: z.string().regex(emojiRegex()).optional(),
 
     /** Boolean to denote if the doc should be published */
     publish: z.boolean().optional(),
 
-    /** Create Doc under this collection */
+    /** Collection to create document within  */
     collectionId: z.string().uuid().nullish(),
 
-    /** Create Doc under this parent */
+    /** Parent document to create within */
     parentDocumentId: z.string().uuid().nullish(),
 
-    /** Create doc with this template */
+    /** A template to create the document from */
     templateId: z.string().uuid().optional(),
 
-    /** Whether to create a template doc */
+    /** Optionally set the created date in the past */
+    createdAt: z.coerce
+      .date()
+      .optional()
+      .refine((data) => !data || data < new Date(), {
+        message: "createdAt must be in the past",
+      }),
+
+    /** Boolean to denote if the document should occupy full width */
+    fullWidth: z.boolean().optional(),
+
+    /** Whether this should be considered a template */
     template: z.boolean().optional(),
   }),
 })

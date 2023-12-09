@@ -1,5 +1,5 @@
 import invariant from "invariant";
-import { some } from "lodash";
+import some from "lodash/some";
 import { CollectionPermission } from "@shared/types";
 import { Collection, User, Team } from "@server/models";
 import { AdminRequiredError } from "../errors";
@@ -92,7 +92,7 @@ allow(User, "share", Collection, (user, collection) => {
   return true;
 });
 
-allow(User, "readDocument", Collection, (user, collection) => {
+allow(User, ["readDocument", "export"], Collection, (user, collection) => {
   if (!collection || user.teamId !== collection.teamId) {
     return false;
   }
@@ -144,7 +144,7 @@ allow(User, ["update", "delete"], Collection, (user, collection) => {
 
 function includesMembership(
   collection: Collection,
-  memberships: CollectionPermission[]
+  permissions: CollectionPermission[]
 ) {
   invariant(
     collection.memberships,
@@ -152,6 +152,6 @@ function includesMembership(
   );
   return some(
     [...collection.memberships, ...collection.collectionGroupMemberships],
-    (m) => memberships.includes(m.permission)
+    (m) => permissions.includes(m.permission)
   );
 }

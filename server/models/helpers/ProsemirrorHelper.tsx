@@ -1,13 +1,16 @@
+import { prosemirrorToYDoc } from "@getoutline/y-prosemirror";
 import { JSDOM } from "jsdom";
-import { Node, DOMSerializer } from "prosemirror-model";
+import { Node, DOMSerializer, Fragment, Mark } from "prosemirror-model";
 import * as React from "react";
 import { renderToString } from "react-dom/server";
 import styled, { ServerStyleSheet, ThemeProvider } from "styled-components";
+import * as Y from "yjs";
 import EditorContainer from "@shared/editor/components/Styles";
+import embeds from "@shared/editor/embeds";
 import GlobalStyles from "@shared/styles/globals";
 import light from "@shared/styles/theme";
 import { isRTL } from "@shared/utils/rtl";
-import { schema } from "@server/editor";
+import { schema, parser } from "@server/editor";
 import Logger from "@server/logging/Logger";
 import { trace } from "@server/logging/tracing";
 
@@ -16,6 +19,8 @@ export type HTMLOptions = {
   title?: string;
   /** Whether to include style tags in the generated HTML (defaults to true) */
   includeStyles?: boolean;
+  /** Whether to include mermaidjs scripts in the generated HTML (defaults to false) */
+  includeMermaid?: boolean;
   /** Whether to include styles to center diff (defaults to true) */
   centered?: boolean;
 };
@@ -31,9 +36,72 @@ type MentionAttrs = {
 @trace()
 export default class ProsemirrorHelper {
   /**
-   * Returns the data as a Prosemirror Node.
+   * Returns the input text as a Y.Doc.
    *
-   * @param node The node to parse
+   * @param markdown The text to parse
+   * @returns The content as a Y.Doc.
+   */
+  static toYDoc(markdown: string, fieldName = "default"): Y.Doc {
+    let node = parser.parse(markdown);
+
+    // in the editor embeds are created at runtime by converting links into
+    // embeds where they match.Because we're converting to a CRDT structure on
+    //  the server we need to mimic this behavior.
+    function urlsToEmbeds(node: Node): Node | null {
+      if (node.type.name === "paragraph") {
+        // @ts-expect-error content
+        for (const textNode of node.content.content) {
+          for (const embed of embeds) {
+            if (
+              textNode.text &&
+              textNode.marks.some(
+                (m: Mark) =>
+                  m.type.name === "link" && m.attrs.href === textNode.text
+              ) &&
+              embed.matcher(textNode.text)
+            ) {
+              return schema.nodes.embed.createAndFill({
+                href: textNode.text,
+              });
+            }
+          }
+        }
+      }
+
+      if (node.content) {
+        const contentAsArray =
+          node.content instanceof Fragment
+            ? // @ts-expect-error content
+              node.content.content
+            : node.content;
+        // @ts-expect-error content
+        node.content = Fragment.fromArray(contentAsArray.map(urlsToEmbeds));
+      }
+
+      return node;
+    }
+
+    if (node) {
+      node = urlsToEmbeds(node);
+    }
+
+    return node ? prosemirrorToYDoc(node, fieldName) : new Y.Doc();
+  }
+
+  /**
+   * Returns the input Y.Doc encoded as a YJS state update.
+   *
+   * @param ydoc The Y.Doc to encode
+   * @returns The content as a YJS state update
+   */
+  static toState(ydoc: Y.Doc) {
+    return Buffer.from(Y.encodeStateAsUpdate(ydoc));
+  }
+
+  /**
+   * Converts a plain object into a Prosemirror Node.
+   *
+   * @param data The object to parse
    * @returns The content as a Prosemirror Node
    */
   static toProsemirror(data: Record<string, any>) {
@@ -78,7 +146,8 @@ export default class ProsemirrorHelper {
    */
   static toHTML(node: Node, options?: HTMLOptions) {
     const sheet = new ServerStyleSheet();
-    let html, styleTags;
+    let html = "";
+    let styleTags = "";
 
     const Centered = options?.centered
       ? styled.article`
@@ -94,7 +163,7 @@ export default class ProsemirrorHelper {
       <>
         {options?.title && <h1 dir={rtl ? "rtl" : "ltr"}>{options.title}</h1>}
         {options?.includeStyles !== false ? (
-          <EditorContainer dir={rtl ? "rtl" : "ltr"} rtl={rtl}>
+          <EditorContainer dir={rtl ? "rtl" : "ltr"} rtl={rtl} staticHTML>
             {content}
           </EditorContainer>
         ) : (
@@ -114,7 +183,7 @@ export default class ProsemirrorHelper {
                 <article>{children}</article>
               ) : (
                 <>
-                  <GlobalStyles />
+                  <GlobalStyles staticHTML />
                   <Centered>{children}</Centered>
                 </>
               )}
@@ -147,6 +216,46 @@ export default class ProsemirrorHelper {
       // @ts-expect-error incorrect library type, third argument is target node
       target
     );
+
+    // Inject mermaidjs scripts if the document contains mermaid diagrams
+    if (options?.includeMermaid) {
+      const mermaidElements = dom.window.document.querySelectorAll(
+        `[data-language="mermaidjs"] pre code`
+      );
+
+      // Unwrap <pre> tags to enable Mermaid script to correctly render inner content
+      for (const el of mermaidElements) {
+        const parent = el.parentNode as HTMLElement;
+        if (parent) {
+          while (el.firstChild) {
+            parent.insertBefore(el.firstChild, el);
+          }
+          parent.removeChild(el);
+          parent.setAttribute("class", "mermaid");
+        }
+      }
+
+      const element = dom.window.document.createElement("script");
+      element.setAttribute("type", "module");
+
+      // Inject Mermaid script
+      if (mermaidElements.length) {
+        element.innerHTML = `
+          import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@9/dist/mermaid.esm.min.mjs';
+          mermaid.initialize({
+            startOnLoad: true,
+            fontFamily: "inherit",
+          });
+          window.status = "ready";
+        `;
+      } else {
+        element.innerHTML = `
+          window.status = "ready";
+        `;
+      }
+
+      dom.window.document.body.appendChild(element);
+    }
 
     return dom.serialize();
   }

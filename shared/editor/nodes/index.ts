@@ -1,4 +1,3 @@
-import BlockMenu from "../extensions/BlockMenu";
 import ClipboardTextSerializer from "../extensions/ClipboardTextSerializer";
 import DateTime from "../extensions/DateTime";
 import History from "../extensions/History";
@@ -48,6 +47,7 @@ import TableCell from "./TableCell";
 import TableHeadCell from "./TableHeadCell";
 import TableRow from "./TableRow";
 import Text from "./Text";
+import Video from "./Video";
 
 type Nodes = (typeof Node | typeof Mark | typeof Extension)[];
 
@@ -83,7 +83,7 @@ export const basicExtensions: Nodes = [
  * editors that need advanced formatting.
  */
 export const richExtensions: Nodes = [
-  ...basicExtensions.filter((n) => n !== SimpleImage),
+  ...basicExtensions.filter((n) => n !== SimpleImage && n !== Keys),
   Image,
   HardBreak,
   CodeBlock,
@@ -96,6 +96,7 @@ export const richExtensions: Nodes = [
   Embed,
   ListItem,
   Attachment,
+  Video,
   Notice,
   Heading,
   HorizontalRule,
@@ -105,13 +106,13 @@ export const richExtensions: Nodes = [
   TableRow,
   Highlight,
   TemplatePlaceholder,
-  BlockMenu,
   Math,
   MathBlock,
   PreventTab,
+  Keys,
 ];
 
 /**
  * Add commenting and mentions to a set of nodes
  */
-export const withComments = (nodes: Nodes) => [Mention, Comment, ...nodes];
+export const withComments = (nodes: Nodes) => [...nodes, Mention, Comment];

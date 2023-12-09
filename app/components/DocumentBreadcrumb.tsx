@@ -12,11 +12,13 @@ import { MenuInternalLink } from "~/types";
 import {
   archivePath,
   collectionPath,
-  templatesPath,
+  settingsPath,
   trashPath,
 } from "~/utils/routeHelpers";
+import EmojiIcon from "./Icons/EmojiIcon";
 
 type Props = {
+  children?: React.ReactNode;
   document: Document;
   onlyText?: boolean;
 };
@@ -42,12 +44,12 @@ function useCategory(document: Document): MenuInternalLink | null {
     };
   }
 
-  if (document.isTemplate) {
+  if (document.template) {
     return {
       type: "route",
       icon: <ShapesIcon />,
       title: t("Templates"),
-      to: templatesPath(),
+      to: settingsPath("templates"),
     };
   }
 
@@ -58,7 +60,7 @@ const DocumentBreadcrumb: React.FC<Props> = ({
   document,
   children,
   onlyText,
-}) => {
+}: Props) => {
   const { collections } = useStores();
   const { t } = useTranslation();
   const category = useCategory(document);
@@ -104,7 +106,13 @@ const DocumentBreadcrumb: React.FC<Props> = ({
     path.forEach((node: NavigationNode) => {
       output.push({
         type: "route",
-        title: node.title,
+        title: node.emoji ? (
+          <>
+            <EmojiIcon emoji={node.emoji} /> {node.title}
+          </>
+        ) : (
+          node.title
+        ),
         to: node.url,
       });
     });
@@ -129,7 +137,11 @@ const DocumentBreadcrumb: React.FC<Props> = ({
     );
   }
 
-  return <Breadcrumb items={items} children={children} highlightFirstItem />;
+  return (
+    <Breadcrumb items={items} highlightFirstItem>
+      {children}
+    </Breadcrumb>
+  );
 };
 
 const SmallSlash = styled(GoToIcon)`

@@ -1,4 +1,4 @@
-import { isEqual } from "lodash";
+import isEqual from "lodash/isEqual";
 import { observable, action } from "mobx";
 import { observer } from "mobx-react";
 import queryString from "query-string";
@@ -9,8 +9,9 @@ import { Waypoint } from "react-waypoint";
 import styled from "styled-components";
 import breakpoint from "styled-components-breakpoint";
 import { v4 as uuidv4 } from "uuid";
+import { Pagination } from "@shared/constants";
+import { hideScrollbars } from "@shared/styles";
 import { DateFilter as TDateFilter } from "@shared/types";
-import { DEFAULT_PAGINATION_LIMIT } from "~/stores/BaseStore";
 import { SearchParams } from "~/stores/DocumentsStore";
 import RootStore from "~/stores/RootStore";
 import ArrowKeyNavigation from "~/components/ArrowKeyNavigation";
@@ -24,6 +25,7 @@ import Scene from "~/components/Scene";
 import Switch from "~/components/Switch";
 import Text from "~/components/Text";
 import withStores from "~/components/withStores";
+import { hover } from "~/styles";
 import Logger from "~/utils/Logger";
 import { searchPath } from "~/utils/routeHelpers";
 import { decodeURIComponentSafe } from "~/utils/urls";
@@ -46,7 +48,8 @@ type Props = RouteComponentProps<
 
 @observer
 class Search extends React.Component<Props> {
-  compositeRef: HTMLDivElement | null | undefined;
+  resultListCompositeRef: HTMLDivElement | null | undefined;
+  recentSearchesCompositeRef: HTMLDivElement | null | undefined;
   searchInputRef: HTMLInputElement | null | undefined;
 
   lastQuery = "";
@@ -93,7 +96,7 @@ class Search extends React.Component<Props> {
   handleKeyDown = (ev: React.KeyboardEvent<HTMLInputElement>) => {
     if (ev.key === "Enter") {
       this.updateLocation(ev.currentTarget.value);
-      this.fetchResults();
+      void this.fetchResults();
       return;
     }
 
@@ -127,12 +130,8 @@ class Search extends React.Component<Props> {
         }
       }
 
-      if (this.compositeRef) {
-        const linkItems = this.compositeRef.querySelectorAll(
-          "[href]"
-        ) as NodeListOf<HTMLAnchorElement>;
-        linkItems[0]?.focus();
-      }
+      const firstItem = this.firstResultItem ?? this.firstRecentSearchItem;
+      firstItem?.focus();
     }
   };
 
@@ -142,7 +141,7 @@ class Search extends React.Component<Props> {
     this.allowLoadMore = true;
     // To prevent "no results" showing before debounce kicks in
     this.isLoading = true;
-    this.fetchResults();
+    void this.fetchResults();
   };
 
   handleTermChange = () => {
@@ -152,7 +151,7 @@ class Search extends React.Component<Props> {
     this.allowLoadMore = true;
     // To prevent "no results" showing before debounce kicks in
     this.isLoading = true;
-    this.fetchResults();
+    void this.fetchResults();
   };
 
   handleFilterChange = (search: {
@@ -176,6 +175,20 @@ class Search extends React.Component<Props> {
   handleTitleFilterChange = (ev: React.ChangeEvent<HTMLInputElement>) => {
     this.handleFilterChange({ titleFilter: ev.target.checked });
   };
+
+  get firstResultItem() {
+    const linkItems = this.resultListCompositeRef?.querySelectorAll(
+      "[href]"
+    ) as NodeListOf<HTMLAnchorElement>;
+    return linkItems?.[0];
+  }
+
+  get firstRecentSearchItem() {
+    const linkItems = this.recentSearchesCompositeRef?.querySelectorAll(
+      "li > [href]"
+    ) as NodeListOf<HTMLAnchorElement>;
+    return linkItems?.[0];
+  }
 
   get includeArchived() {
     return this.params.get("includeArchived") === "true";
@@ -235,7 +248,7 @@ class Search extends React.Component<Props> {
     if (this.query.trim()) {
       const params = {
         offset: this.offset,
-        limit: DEFAULT_PAGINATION_LIMIT,
+        limit: Pagination.defaultLimit,
         dateFilter: this.dateFilter,
         includeArchived: this.includeArchived,
         includeDrafts: true,
@@ -267,10 +280,10 @@ class Search extends React.Component<Props> {
           createdAt: new Date().toISOString(),
         });
 
-        if (results.length === 0 || results.length < DEFAULT_PAGINATION_LIMIT) {
+        if (results.length === 0 || results.length < Pagination.defaultLimit) {
           this.allowLoadMore = false;
         } else {
-          this.offset += DEFAULT_PAGINATION_LIMIT;
+          this.offset += Pagination.defaultLimit;
         }
       } catch (error) {
         Logger.error("Search query failed", error);
@@ -291,8 +304,12 @@ class Search extends React.Component<Props> {
     });
   };
 
-  setCompositeRef = (ref: HTMLDivElement | null) => {
-    this.compositeRef = ref;
+  setResultListCompositeRef = (ref: HTMLDivElement | null) => {
+    this.resultListCompositeRef = ref;
+  };
+
+  setRecentSearchesCompositeRef = (ref: HTMLDivElement | null) => {
+    this.recentSearchesCompositeRef = ref;
   };
 
   setSearchInputRef = (ref: HTMLInputElement | null) => {
@@ -371,7 +388,10 @@ class Search extends React.Component<Props> {
               />
             </Filters>
           ) : (
-            <RecentSearches />
+            <RecentSearches
+              ref={this.setRecentSearchesCompositeRef}
+              onEscape={this.handleEscape}
+            />
           )}
           {showEmpty && (
             <Fade>
@@ -384,7 +404,7 @@ class Search extends React.Component<Props> {
           )}
           <ResultList column>
             <StyledArrowKeyNavigation
-              ref={this.setCompositeRef}
+              ref={this.setResultListCompositeRef}
               onEscape={this.handleEscape}
               aria-label={t("Search Results")}
             >
@@ -448,12 +468,13 @@ const Filters = styled(Flex)`
   overflow-y: hidden;
   overflow-x: auto;
   padding: 8px 0;
+  ${hideScrollbars()}
 
   ${breakpoint("tablet")`
     padding: 0;
   `};
 
-  &:hover {
+  &: ${hover} {
     opacity: 1;
   }
 `;
@@ -463,7 +484,7 @@ const SearchTitlesFilter = styled(Switch)`
   margin-left: 8px;
   margin-top: 2px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
 `;
 
 export default withTranslation()(withStores(withRouter(Search)));

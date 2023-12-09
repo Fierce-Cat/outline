@@ -19,7 +19,9 @@ import Desktop from "~/utils/Desktop";
 import ErrorBoundary from "./ErrorBoundary";
 
 let openModals = 0;
+
 type Props = {
+  children?: React.ReactNode;
   isOpen: boolean;
   isCentered?: boolean;
   title?: React.ReactNode;
@@ -32,7 +34,7 @@ const Modal: React.FC<Props> = ({
   isCentered,
   title = "Untitled",
   onRequestClose,
-}) => {
+}: Props) => {
   const dialog = useDialogState({
     animated: 250,
   });
@@ -92,11 +94,9 @@ const Modal: React.FC<Props> = ({
                           {title}
                         </Text>
                       )}
-                      <Text as="span" size="large">
-                        <NudeButton onClick={onRequestClose}>
-                          <CloseIcon />
-                        </NudeButton>
-                      </Text>
+                      <NudeButton onClick={onRequestClose}>
+                        <CloseIcon />
+                      </NudeButton>
                     </Header>
                   </Centered>
                 </Small>
@@ -257,7 +257,7 @@ const Small = styled.div`
   margin: auto auto;
   width: 30vw;
   min-width: 350px;
-  max-width: 500px;
+  max-width: 450px;
   z-index: ${depths.modal};
   display: flex;
   justify-content: center;

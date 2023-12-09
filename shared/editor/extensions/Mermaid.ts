@@ -1,14 +1,141 @@
+import debounce from "lodash/debounce";
+import last from "lodash/last";
+import sortBy from "lodash/sortBy";
 import { Node } from "prosemirror-model";
-import { Plugin, PluginKey, Transaction } from "prosemirror-state";
-import { findBlockNodes } from "prosemirror-utils";
+import {
+  Plugin,
+  PluginKey,
+  TextSelection,
+  Transaction,
+} from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { v4 as uuidv4 } from "uuid";
+import { isCode } from "../lib/isCode";
+import { isRemoteTransaction } from "../lib/multiplayer";
+import { findBlockNodes, NodeWithPos } from "../queries/findChildren";
 
 type MermaidState = {
   decorationSet: DecorationSet;
-  diagramVisibility: Record<number, boolean>;
   isDark: boolean;
+  initialized: boolean;
 };
+
+class Cache {
+  static get(key: string) {
+    return this.data.get(key);
+  }
+
+  static set(key: string, value: string) {
+    this.data.set(key, value);
+
+    if (this.data.size > this.maxSize) {
+      this.data.delete(this.data.keys().next().value);
+    }
+  }
+
+  private static maxSize = 10;
+  private static data: Map<string, string> = new Map();
+}
+
+type RendererFunc = (block: { node: Node; pos: number }) => void;
+
+class MermaidRenderer {
+  readonly diagramId: string;
+  readonly element: HTMLElement;
+  readonly elementId: string;
+
+  constructor() {
+    this.diagramId = uuidv4();
+    this.elementId = `mermaid-diagram-wrapper-${this.diagramId}`;
+    this.element =
+      document.getElementById(this.elementId) || document.createElement("div");
+    this.element.id = this.elementId;
+    this.element.classList.add("mermaid-diagram-wrapper");
+  }
+
+  renderImmediately = async (block: { node: Node; pos: number }) => {
+    const element = this.element;
+    const text = block.node.textContent;
+
+    const cache = Cache.get(text);
+    if (cache) {
+      element.classList.remove("parse-error", "empty");
+      element.innerHTML = cache;
+      return;
+    }
+
+    try {
+      const { default: mermaid } = await import("mermaid");
+      mermaid.render(
+        `mermaid-diagram-${this.diagramId}`,
+        text,
+        (svgCode, bindFunctions) => {
+          this.currentTextContent = text;
+          if (text) {
+            Cache.set(text, svgCode);
+          }
+          element.classList.remove("parse-error", "empty");
+          element.innerHTML = svgCode;
+          bindFunctions?.(element);
+        },
+        element
+      );
+    } catch (error) {
+      const isEmpty = block.node.textContent.trim().length === 0;
+
+      if (isEmpty) {
+        element.innerText = "Empty diagram";
+        element.classList.add("empty");
+      } else {
+        element.innerText = error;
+        element.classList.add("parse-error");
+      }
+    }
+  };
+
+  get render(): RendererFunc {
+    if (this._rendererFunc) {
+      return this._rendererFunc;
+    }
+    this._rendererFunc = debounce<RendererFunc>(this.renderImmediately, 500);
+    return this.renderImmediately;
+  }
+
+  private currentTextContent = "";
+  private _rendererFunc?: RendererFunc;
+}
+
+function overlap(
+  start1: number,
+  end1: number,
+  start2: number,
+  end2: number
+): number {
+  return Math.max(0, Math.min(end1, end2) - Math.max(start1, start2));
+}
+/*
+  This code find the decoration that overlap the most with a given node.
+  This will ensure we can find the best decoration that match the last change set
+  See: https://github.com/outline/outline/pull/5852/files#r1334929120
+*/
+function findBestOverlapDecoration(
+  decorations: Decoration[],
+  block: NodeWithPos
+): Decoration | undefined {
+  if (decorations.length === 0) {
+    return undefined;
+  }
+  return last(
+    sortBy(decorations, (decoration) =>
+      overlap(
+        decoration.from,
+        decoration.to,
+        block.pos,
+        block.pos + block.node.nodeSize
+      )
+    )
+  );
+}
 
 function getNewState({
   doc,
@@ -18,97 +145,67 @@ function getNewState({
   doc: Node;
   name: string;
   pluginState: MermaidState;
-}) {
+}): MermaidState {
   const decorations: Decoration[] = [];
 
   // Find all blocks that represent Mermaid diagrams
-  const blocks: { node: Node; pos: number }[] = findBlockNodes(doc).filter(
+  const blocks = findBlockNodes(doc).filter(
     (item) =>
       item.node.type.name === name && item.node.attrs.language === "mermaidjs"
   );
 
+  let { initialized } = pluginState;
+  if (blocks.length > 0 && !initialized) {
+    void import("mermaid").then(({ default: mermaid }) => {
+      mermaid.initialize({
+        startOnLoad: true,
+        // TODO: Make dynamic based on the width of the editor or remove in
+        // the future if Mermaid is able to handle this automatically.
+        gantt: {
+          useWidth: 700,
+        },
+        theme: pluginState.isDark ? "dark" : "default",
+        fontFamily: "inherit",
+      });
+    });
+
+    initialized = true;
+  }
+
   blocks.forEach((block) => {
-    const diagramDecorationPos = block.pos + block.node.nodeSize;
     const existingDecorations = pluginState.decorationSet.find(
       block.pos,
-      diagramDecorationPos
+      block.pos + block.node.nodeSize,
+      (spec) => !!spec.diagramId
     );
 
-    // Attempt to find the existing diagramId from the decoration, or assign
-    // a new one if none exists yet.
-    let diagramId = existingDecorations[0]?.spec["diagramId"];
-    if (diagramId === undefined) {
-      diagramId = uuidv4();
-    }
+    const bestDecoration = findBestOverlapDecoration(
+      existingDecorations,
+      block
+    );
 
-    // Make the diagram visible by default if it contains source code
-    if (pluginState.diagramVisibility[diagramId] === undefined) {
-      pluginState.diagramVisibility[diagramId] = !!block.node.textContent;
-    }
+    const renderer: MermaidRenderer =
+      bestDecoration?.spec?.renderer ?? new MermaidRenderer();
 
     const diagramDecoration = Decoration.widget(
       block.pos + block.node.nodeSize,
       () => {
-        const elementId = "mermaid-diagram-wrapper-" + diagramId;
-        const element =
-          document.getElementById(elementId) || document.createElement("div");
-        element.id = elementId;
-        element.classList.add("mermaid-diagram-wrapper");
-
-        if (pluginState.diagramVisibility[diagramId] === false) {
-          element.classList.add("diagram-hidden");
-          return element;
-        } else {
-          element.classList.remove("diagram-hidden");
-        }
-
-        import("mermaid").then((module) => {
-          module.default.initialize({
-            startOnLoad: true,
-            // TODO: Make dynamic based on the width of the editor or remove in
-            // the future if Mermaid is able to handle this automatically.
-            gantt: {
-              useWidth: 700,
-            },
-            theme: pluginState.isDark ? "dark" : "default",
-            fontFamily: "inherit",
-          });
-          try {
-            module.default.render(
-              "mermaid-diagram-" + diagramId,
-              block.node.textContent,
-              (svgCode) => {
-                element.innerHTML = svgCode;
-              }
-            );
-          } catch (error) {
-            const errorNode = document.getElementById(
-              "d" + "mermaid-diagram-" + diagramId
-            );
-            if (errorNode) {
-              element.appendChild(errorNode);
-            }
-          }
-        });
-
-        return element;
+        void renderer.render(block);
+        return renderer.element;
       },
       {
-        diagramId,
+        diagramId: renderer.diagramId,
+        renderer,
       }
     );
-
-    const attributes = { "data-diagram-id": "" + diagramId };
-    if (pluginState.diagramVisibility[diagramId] !== false) {
-      attributes["class"] = "code-hidden";
-    }
 
     const diagramIdDecoration = Decoration.node(
       block.pos,
       block.pos + block.node.nodeSize,
-      attributes,
+      {},
       {
-        diagramId,
+        diagramId: renderer.diagramId,
+        renderer,
       }
     );
 
@@ -118,8 +215,8 @@ function getNewState({
 
   return {
     decorationSet: DecorationSet.create(doc, decorations),
-    diagramVisibility: pluginState.diagramVisibility,
     isDark: pluginState.isDark,
+    initialized,
   };
 }
 
@@ -130,18 +227,20 @@ export default function Mermaid({
   name: string;
   isDark: boolean;
 }) {
-  let diagramShown = false;
-
   return new Plugin({
     key: new PluginKey("mermaid"),
     state: {
-      init: (_: Plugin, { doc }) => {
+      init: (_, { doc }) => {
         const pluginState: MermaidState = {
           decorationSet: DecorationSet.create(doc, []),
-          diagramVisibility: {},
           isDark,
+          initialized: false,
         };
-        return pluginState;
+        return getNewState({
+          doc,
+          name,
+          pluginState,
+        });
       },
       apply: (
         transaction: Transaction,
@@ -153,30 +252,20 @@ export default function Mermaid({
         const previousNodeName = oldState.selection.$head.parent.type.name;
         const codeBlockChanged =
           transaction.docChanged && [nodeName, previousNodeName].includes(name);
-        const ySyncEdit = !!transaction.getMeta("y-sync$");
-        const mermaidMeta = transaction.getMeta("mermaid");
         const themeMeta = transaction.getMeta("theme");
-        const diagramToggled = mermaidMeta?.toggleDiagram !== undefined;
+        const mermaidMeta = transaction.getMeta("mermaid");
         const themeToggled = themeMeta?.isDark !== undefined;
 
         if (themeToggled) {
           pluginState.isDark = themeMeta.isDark;
         }
 
-        if (diagramToggled) {
-          pluginState.diagramVisibility[
-            mermaidMeta.toggleDiagram
-          ] = !pluginState.diagramVisibility[mermaidMeta.toggleDiagram];
-        }
-
         if (
-          !diagramShown ||
+          mermaidMeta ||
           themeToggled ||
           codeBlockChanged ||
-          diagramToggled ||
-          ySyncEdit
+          isRemoteTransaction(transaction)
         ) {
-          diagramShown = true;
           return getNewState({
             doc: transaction.doc,
             name,
@@ -189,27 +278,103 @@ export default function Mermaid({
             transaction.mapping,
             transaction.doc
           ),
-          diagramVisibility: pluginState.diagramVisibility,
           isDark: pluginState.isDark,
         };
       },
     },
     view: (view) => {
-      if (!diagramShown) {
-        // we don't draw diagrams on code blocks on the first render as part of mounting
-        // as it's expensive (relative to the rest of the document). Instead let
-        // it render without a diagram and then trigger a defered render of Mermaid
-        // by updating the plugins metadata
-        setTimeout(() => {
-          view.dispatch(view.state.tr.setMeta("mermaid", { loaded: true }));
-        }, 10);
-      }
-
+      view.dispatch(view.state.tr.setMeta("mermaid", { loaded: true }));
       return {};
     },
     props: {
       decorations(state) {
-        return this.getState(state).decorationSet;
+        return this.getState(state)?.decorationSet;
+      },
+      handleDOMEvents: {
+        mousedown(view, event) {
+          const target = event.target as HTMLElement;
+          const diagram = target?.closest(".mermaid-diagram-wrapper");
+          const codeBlock = diagram?.previousElementSibling;
+
+          if (!codeBlock) {
+            return false;
+          }
+
+          const pos = view.posAtDOM(codeBlock, 0);
+          if (!pos) {
+            return false;
+          }
+
+          // select node
+          if (diagram && event.detail === 1) {
+            view.dispatch(
+              view.state.tr
+                .setSelection(TextSelection.near(view.state.doc.resolve(pos)))
+                .scrollIntoView()
+            );
+            return true;
+          }
+
+          return false;
+        },
+        keydown: (view, event) => {
+          switch (event.key) {
+            case "ArrowDown": {
+              const { selection } = view.state;
+              const $pos = view.state.doc.resolve(
+                Math.min(selection.from + 1, view.state.doc.nodeSize)
+              );
+              const nextBlock = $pos.nodeAfter;
+
+              if (
+                nextBlock &&
+                isCode(nextBlock) &&
+                nextBlock.attrs.language === "mermaidjs"
+              ) {
+                view.dispatch(
+                  view.state.tr
+                    .setSelection(
+                      TextSelection.near(
+                        view.state.doc.resolve(selection.to + 1)
+                      )
+                    )
+                    .scrollIntoView()
+                );
+                event.preventDefault();
+                return true;
+              }
+              return false;
+            }
+            case "ArrowUp": {
+              const { selection } = view.state;
+              const $pos = view.state.doc.resolve(
+                Math.max(0, selection.from - 1)
+              );
+              const prevBlock = $pos.nodeBefore;
+
+              if (
+                prevBlock &&
+                isCode(prevBlock) &&
+                prevBlock.attrs.language === "mermaidjs"
+              ) {
+                view.dispatch(
+                  view.state.tr
+                    .setSelection(
+                      TextSelection.near(
+                        view.state.doc.resolve(selection.from - 2)
+                      )
+                    )
+                    .scrollIntoView()
+                );
+                event.preventDefault();
+                return true;
+              }
+              return false;
+            }
+          }
+
+          return false;
+        },
       },
     },
   });

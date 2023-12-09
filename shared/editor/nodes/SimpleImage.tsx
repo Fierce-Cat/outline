@@ -1,8 +1,9 @@
 import Token from "markdown-it/lib/token";
 import { InputRule } from "prosemirror-inputrules";
 import { Node as ProsemirrorNode, NodeSpec, NodeType } from "prosemirror-model";
-import { TextSelection, NodeSelection, EditorState } from "prosemirror-state";
+import { TextSelection, NodeSelection, Command } from "prosemirror-state";
 import * as React from "react";
+import { Primitive } from "utility-types";
 import { getEventFiles } from "../../utils/files";
 import { sanitizeUrl } from "../../utils/urls";
 import { AttachmentValidation } from "../../validations";
@@ -11,7 +12,7 @@ import { default as ImageComponent } from "../components/Image";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
 import uploadPlaceholderPlugin from "../lib/uploadPlaceholder";
 import uploadPlugin from "../lib/uploadPlugin";
-import { ComponentProps, Dispatch } from "../types";
+import { ComponentProps } from "../types";
 import Node from "./Node";
 
 export default class SimpleImage extends Node {
@@ -75,81 +76,16 @@ export default class SimpleImage extends Node {
     };
   }
 
-  handleKeyDown = ({
-    node,
-    getPos,
-  }: {
-    node: ProsemirrorNode;
-    getPos: () => number;
-  }) => (event: React.KeyboardEvent<HTMLSpanElement>) => {
-    // Pressing Enter in the caption field should move the cursor/selection
-    // below the image
-    if (event.key === "Enter") {
+  handleSelect =
+    ({ getPos }: { getPos: () => number }) =>
+    (event: React.MouseEvent) => {
       event.preventDefault();
 
       const { view } = this.editor;
-      const $pos = view.state.doc.resolve(getPos() + node.nodeSize);
-      view.dispatch(
-        view.state.tr.setSelection(new TextSelection($pos)).split($pos.pos)
-      );
-      view.focus();
-      return;
-    }
-
-    // Pressing Backspace in an an empty caption field should remove the entire
-    // image, leaving an empty paragraph
-    if (event.key === "Backspace" && event.currentTarget.innerText === "") {
-      const { view } = this.editor;
       const $pos = view.state.doc.resolve(getPos());
-      const tr = view.state.tr.setSelection(new NodeSelection($pos));
-      view.dispatch(tr.deleteSelection());
-      view.focus();
-      return;
-    }
-  };
-
-  handleBlur = ({
-    node,
-    getPos,
-  }: {
-    node: ProsemirrorNode;
-    getPos: () => number;
-  }) => (event: React.FocusEvent<HTMLSpanElement>) => {
-    const caption = event.currentTarget.innerText;
-    if (caption === node.attrs.alt) {
-      return;
-    }
-
-    const { view } = this.editor;
-    const { tr } = view.state;
-
-    // update meta on object
-    const pos = getPos();
-    const transaction = tr.setNodeMarkup(pos, undefined, {
-      ...node.attrs,
-      alt: caption,
-    });
-    view.dispatch(transaction);
-  };
-
-  handleSelect = ({ getPos }: { getPos: () => number }) => (
-    event: React.MouseEvent
-  ) => {
-    event.preventDefault();
-
-    const { view } = this.editor;
-    const $pos = view.state.doc.resolve(getPos());
-    const transaction = view.state.tr.setSelection(new NodeSelection($pos));
-    view.dispatch(transaction);
-  };
-
-  handleMouseDown = (ev: React.MouseEvent<HTMLParagraphElement>) => {
-    if (document.activeElement !== ev.currentTarget) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      ev.currentTarget.focus();
-    }
-  };
+      const transaction = view.state.tr.setSelection(new NodeSelection($pos));
+      view.dispatch(transaction);
+    };
 
   component = (props: ComponentProps) => (
     <ImageComponent {...props} onClick={this.handleSelect(props)} />
@@ -179,22 +115,18 @@ export default class SimpleImage extends Node {
 
   commands({ type }: { type: NodeType }) {
     return {
-      deleteImage: () => (state: EditorState, dispatch: Dispatch) => {
-        dispatch(state.tr.deleteSelection());
+      deleteImage: (): Command => (state, dispatch) => {
+        dispatch?.(state.tr.deleteSelection());
         return true;
       },
-      replaceImage: () => (state: EditorState) => {
+      replaceImage: (): Command => (state) => {
         if (!(state.selection instanceof NodeSelection)) {
           return false;
         }
         const { view } = this.editor;
         const { node } = state.selection;
-        const {
-          uploadFile,
-          onFileUploadStart,
-          onFileUploadStop,
-          onShowToast,
-        } = this.editor.props;
+        const { uploadFile, onFileUploadStart, onFileUploadStop } =
+          this.editor.props;
 
         if (!uploadFile) {
           throw new Error("uploadFile prop is required to replace images");
@@ -214,7 +146,6 @@ export default class SimpleImage extends Node {
             uploadFile,
             onFileUploadStart,
             onFileUploadStop,
-            onShowToast,
             dictionary: this.options.dictionary,
             replaceExisting: true,
             attrs: {
@@ -225,24 +156,23 @@ export default class SimpleImage extends Node {
         inputElement.click();
         return true;
       },
-      createImage: (attrs: Record<string, any>) => (
-        state: EditorState,
-        dispatch: Dispatch
-      ) => {
-        const { selection } = state;
-        const position =
-          selection instanceof TextSelection
-            ? selection.$cursor?.pos
-            : selection.$to.pos;
-        if (position === undefined) {
-          return false;
-        }
+      createImage:
+        (attrs: Record<string, Primitive>): Command =>
+        (state, dispatch) => {
+          const { selection } = state;
+          const position =
+            selection instanceof TextSelection
+              ? selection.$cursor?.pos
+              : selection.$to.pos;
+          if (position === undefined) {
+            return false;
+          }
 
-        const node = type.create(attrs);
-        const transaction = state.tr.insert(position, node);
-        dispatch(transaction);
-        return true;
-      },
+          const node = type.create(attrs);
+          const transaction = state.tr.insert(position, node);
+          dispatch?.(transaction);
+          return true;
+        },
     };
   }
 
@@ -255,7 +185,8 @@ export default class SimpleImage extends Node {
      * ![](image.jpg "class") -> [, "", "image.jpg", "small"]
      * ![Lorem](image.jpg "class") -> [, "Lorem", "image.jpg", "small"]
      */
-    const IMAGE_INPUT_REGEX = /!\[(?<alt>[^\][]*?)]\((?<filename>[^\][]*?)(?=“|\))“?(?<layoutclass>[^\][”]+)?”?\)$/;
+    const IMAGE_INPUT_REGEX =
+      /!\[(?<alt>[^\][]*?)]\((?<filename>[^\][]*?)(?=“|\))“?(?<layoutclass>[^\][”]+)?”?\)$/;
 
     return [
       new InputRule(IMAGE_INPUT_REGEX, (state, match, start, end) => {

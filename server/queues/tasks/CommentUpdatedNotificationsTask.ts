@@ -4,9 +4,7 @@ import ProsemirrorHelper from "@server/models/helpers/ProsemirrorHelper";
 import { CommentEvent, CommentUpdateEvent } from "@server/types";
 import BaseTask, { TaskPriority } from "./BaseTask";
 
-export default class CommentUpdatedNotificationsTask extends BaseTask<
-  CommentEvent
-> {
+export default class CommentUpdatedNotificationsTask extends BaseTask<CommentEvent> {
   public async perform(event: CommentUpdateEvent) {
     const [document, comment] = await Promise.all([
       Document.scope("withCollection").findOne({
@@ -23,11 +21,13 @@ export default class CommentUpdatedNotificationsTask extends BaseTask<
     const mentions = ProsemirrorHelper.parseMentions(
       ProsemirrorHelper.toProsemirror(comment.data)
     ).filter((mention) => event.data.newMentionIds.includes(mention.id));
-    if (mentions.length === 0) {
-      return;
-    }
+    const userIdsMentioned: string[] = [];
 
     for (const mention of mentions) {
+      if (userIdsMentioned.includes(mention.modelId)) {
+        continue;
+      }
+
       const recipient = await User.findByPk(mention.modelId);
 
       if (

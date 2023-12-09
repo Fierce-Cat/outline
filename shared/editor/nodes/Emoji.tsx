@@ -1,4 +1,3 @@
-import nameToEmoji from "gemoji/name-to-emoji.json";
 import Token from "markdown-it/lib/token";
 import {
   NodeSpec,
@@ -6,25 +5,16 @@ import {
   NodeType,
   Schema,
 } from "prosemirror-model";
-import { EditorState, TextSelection } from "prosemirror-state";
-import Suggestion from "../extensions/Suggestion";
+import { Command, TextSelection } from "prosemirror-state";
+import { Primitive } from "utility-types";
+import Extension from "../lib/Extension";
+import { getEmojiFromName } from "../lib/emoji";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
-import { SuggestionsMenuType } from "../plugins/Suggestions";
 import emojiRule from "../rules/emoji";
-import { Dispatch } from "../types";
 
-export default class Emoji extends Suggestion {
+export default class Emoji extends Extension {
   get type() {
     return "node";
-  }
-
-  get defaultOptions() {
-    return {
-      type: SuggestionsMenuType.Emoji,
-      openRegex: /(?:^|\s):([0-9a-zA-Z_+-]+)?$/,
-      closeRegex: /(?:^|\s):(([0-9a-zA-Z_+-]*\s+)|(\s+[0-9a-zA-Z_+-]+)|[^0-9a-zA-Z_+-]+)$/,
-      enabledInTable: true,
-    };
   }
 
   get name() {
@@ -56,19 +46,19 @@ export default class Emoji extends Suggestion {
         },
       ],
       toDOM: (node) => {
-        if (nameToEmoji[node.attrs["data-name"]]) {
+        if (getEmojiFromName(node.attrs["data-name"])) {
           return [
             "strong",
             {
               class: `emoji ${node.attrs["data-name"]}`,
               "data-name": node.attrs["data-name"],
             },
-            nameToEmoji[node.attrs["data-name"]],
+            getEmojiFromName(node.attrs["data-name"]),
           ];
         }
         return ["strong", { class: "emoji" }, `:${node.attrs["data-name"]}:`];
       },
-      toPlainText: (node) => nameToEmoji[node.attrs["data-name"]],
+      toPlainText: (node) => getEmojiFromName(node.attrs["data-name"]),
     };
   }
 
@@ -77,24 +67,22 @@ export default class Emoji extends Suggestion {
   }
 
   commands({ type }: { type: NodeType; schema: Schema }) {
-    return (attrs: Record<string, string>) => (
-      state: EditorState,
-      dispatch: Dispatch
-    ) => {
-      const { selection } = state;
-      const position =
-        selection instanceof TextSelection
-          ? selection.$cursor?.pos
-          : selection.$to.pos;
-      if (position === undefined) {
-        return false;
-      }
+    return (attrs: Record<string, Primitive>): Command =>
+      (state, dispatch) => {
+        const { selection } = state;
+        const position =
+          selection instanceof TextSelection
+            ? selection.$cursor?.pos
+            : selection.$to.pos;
+        if (position === undefined) {
+          return false;
+        }
 
-      const node = type.create(attrs);
-      const transaction = state.tr.insert(position, node);
-      dispatch(transaction);
-      return true;
-    };
+        const node = type.create(attrs);
+        const transaction = state.tr.insert(position, node);
+        dispatch?.(transaction);
+        return true;
+      };
   }
 
   toMarkdown(state: MarkdownSerializerState, node: ProsemirrorNode) {

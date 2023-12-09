@@ -1,11 +1,15 @@
 import { subSeconds } from "date-fns";
 import { computed, observable } from "mobx";
 import { now } from "mobx-utils";
+import type { ProsemirrorData } from "@shared/types";
 import User from "~/models/User";
-import BaseModel from "./BaseModel";
+import Model from "./base/Model";
 import Field from "./decorators/Field";
+import Relation from "./decorators/Relation";
 
-class Comment extends BaseModel {
+class Comment extends Model {
+  static modelName = "Comment";
+
   /**
    * Map to keep track of which users are currently typing a reply in this
    * comments thread.
@@ -22,7 +26,7 @@ class Comment extends BaseModel {
    */
   @Field
   @observable
-  data: Record<string, any>;
+  data: ProsemirrorData;
 
   /**
    * If this comment is a reply then the parent comment will be set, otherwise
@@ -33,23 +37,28 @@ class Comment extends BaseModel {
   parentCommentId: string;
 
   /**
+   * The comment that this comment is a reply to.
+   */
+  @Relation(() => Comment, { onDelete: "cascade" })
+  parentComment?: Comment;
+
+  /**
    * The document to which this comment belongs.
    */
   @Field
   @observable
   documentId: string;
 
-  createdAt: string;
-
+  @Relation(() => User)
   createdBy: User;
 
   createdById: string;
 
+  @observable
   resolvedAt: string;
 
+  @Relation(() => User)
   resolvedBy: User;
-
-  updatedAt: string;
 
   /**
    * An array of users that are currently typing a reply in this comments thread.
@@ -59,7 +68,7 @@ class Comment extends BaseModel {
     return Array.from(this.typingUsers.entries())
       .filter(([, lastReceivedDate]) => lastReceivedDate > subSeconds(now(), 3))
       .map(([userId]) => this.store.rootStore.users.get(userId))
-      .filter(Boolean);
+      .filter(Boolean) as User[];
   }
 }
 

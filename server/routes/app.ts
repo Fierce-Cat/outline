@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import util from "util";
 import { Context, Next } from "koa";
-import { escape } from "lodash";
+import escape from "lodash/escape";
 import { Sequelize } from "sequelize";
 import isUUID from "validator/lib/isUUID";
 import { IntegrationType, TeamPreference } from "@shared/types";
@@ -14,24 +14,24 @@ import { getTeamFromContext } from "@server/utils/passport";
 import prefetchTags from "@server/utils/prefetchTags";
 import readManifestFile from "@server/utils/readManifestFile";
 
-const isProduction = env.ENVIRONMENT === "production";
-const isDevelopment = env.ENVIRONMENT === "development";
-const isTest = env.ENVIRONMENT === "test";
 const readFile = util.promisify(fs.readFile);
+const entry = "app/index.tsx";
+const viteHost = env.URL.replace(`:${env.PORT}`, ":3001");
+
 let indexHtmlCache: Buffer | undefined;
 
 const readIndexFile = async (): Promise<Buffer> => {
-  if (isProduction || isTest) {
+  if (env.isProduction || env.isTest) {
     if (indexHtmlCache) {
       return indexHtmlCache;
     }
   }
 
-  if (isTest) {
+  if (env.isTest) {
     return await readFile(path.join(__dirname, "../static/index.html"));
   }
 
-  if (isDevelopment) {
+  if (env.isDevelopment) {
     return await readFile(
       path.join(__dirname, "../../../server/static/index.html")
     );
@@ -50,6 +50,7 @@ export const renderApp = async (
     description?: string;
     canonical?: string;
     shortcutIcon?: string;
+    rootShareId?: string;
     analytics?: Integration | null;
   } = {}
 ) => {
@@ -67,24 +68,24 @@ export const renderApp = async (
   const { shareId } = ctx.params;
   const page = await readIndexFile();
   const environment = `
-    <script>
-      window.env = ${JSON.stringify(presentEnv(env, options.analytics))};
+    <script nonce="${ctx.state.cspNonce}">
+      window.env = ${JSON.stringify(presentEnv(env, options))};
     </script>
   `;
-  const entry = "app/index.tsx";
-  const scriptTags = isProduction
-    ? `<script type="module" src="${env.CDN_URL || ""}/static/${
-        readManifestFile()[entry]["file"]
-      }"></script>`
-    : `<script type="module">
-        import RefreshRuntime from 'http://localhost:3001/static/@react-refresh'
+
+  const scriptTags = env.isProduction
+    ? `<script type="module" nonce="${ctx.state.cspNonce}" src="${
+        env.CDN_URL || ""
+      }/static/${readManifestFile()[entry]["file"]}"></script>`
+    : `<script type="module" nonce="${ctx.state.cspNonce}">
+        import RefreshRuntime from "${viteHost}/static/@react-refresh"
         RefreshRuntime.injectIntoGlobalHook(window)
         window.$RefreshReg$ = () => { }
         window.$RefreshSig$ = () => (type) => type
         window.__vite_plugin_react_preamble_installed__ = true
       </script>
-      <script type="module" src="http://localhost:3001/static/@vite/client"></script>
-      <script type="module" src="http://localhost:3001/static/${entry}"></script>
+      <script type="module" nonce="${ctx.state.cspNonce}" src="${viteHost}/static/@vite/client"></script>
+      <script type="module" nonce="${ctx.state.cspNonce}" src="${viteHost}/static/${entry}"></script>
     `;
 
   ctx.body = page
@@ -97,11 +98,15 @@ export const renderApp = async (
     .replace(/\{prefetch\}/g, shareId ? "" : prefetchTags)
     .replace(/\{slack-app-id\}/g, env.SLACK_APP_ID || "")
     .replace(/\{cdn-url\}/g, env.CDN_URL || "")
-    .replace(/\{script-tags\}/g, scriptTags);
+    .replace(/\{script-tags\}/g, scriptTags)
+    .replace(/\{csp-nonce\}/g, ctx.state.cspNonce);
 };
 
 export const renderShare = async (ctx: Context, next: Next) => {
-  const { shareId, documentSlug } = ctx.params;
+  const rootShareId = ctx.state?.rootShare?.id;
+  const shareId = rootShareId ?? ctx.params.shareId;
+  const documentSlug = ctx.params.documentSlug;
+
   // Find the share record if publicly published so that the document title
   // can be be returned in the server-rendered HTML. This allows it to appear in
   // unfurls with more reliablity
@@ -154,6 +159,7 @@ export const renderShare = async (ctx: Context, next: Next) => {
         ? team.avatarUrl
         : undefined,
     analytics,
+    rootShareId,
     canonical: share
       ? `${share.canonicalUrl}${documentSlug && document ? document.url : ""}`
       : undefined,

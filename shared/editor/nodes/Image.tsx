@@ -1,12 +1,18 @@
 import Token from "markdown-it/lib/token";
 import { InputRule } from "prosemirror-inputrules";
 import { Node as ProsemirrorNode, NodeSpec, NodeType } from "prosemirror-model";
-import { NodeSelection, EditorState, Plugin } from "prosemirror-state";
+import {
+  NodeSelection,
+  Plugin,
+  Command,
+  TextSelection,
+} from "prosemirror-state";
 import * as React from "react";
 import { sanitizeUrl } from "../../utils/urls";
-import { default as ImageComponent, Caption } from "../components/Image";
+import Caption from "../components/Caption";
+import ImageComponent from "../components/Image";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
-import { ComponentProps, Dispatch } from "../types";
+import { ComponentProps } from "../types";
 import SimpleImage from "./SimpleImage";
 
 const imageSizeRegex = /\s=(\d+)?x(\d+)?$/;
@@ -189,35 +195,84 @@ export default class Image extends SimpleImage {
     ];
   }
 
-  handleChangeSize = ({
-    node,
-    getPos,
-  }: {
-    node: ProsemirrorNode;
-    getPos: () => number;
-  }) => ({ width, height }: { width: number; height?: number }) => {
-    const { view } = this.editor;
-    const { tr } = view.state;
+  handleChangeSize =
+    ({ node, getPos }: { node: ProsemirrorNode; getPos: () => number }) =>
+    ({ width, height }: { width: number; height?: number }) => {
+      const { view } = this.editor;
+      const { tr } = view.state;
 
-    const pos = getPos();
-    const transaction = tr
-      .setNodeMarkup(pos, undefined, {
+      const pos = getPos();
+      const transaction = tr
+        .setNodeMarkup(pos, undefined, {
+          ...node.attrs,
+          width,
+          height,
+        })
+        .setMeta("addToHistory", true);
+      const $pos = transaction.doc.resolve(getPos());
+      view.dispatch(transaction.setSelection(new NodeSelection($pos)));
+    };
+
+  handleDownload =
+    ({ node }: { node: ProsemirrorNode }) =>
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void downloadImageNode(node);
+    };
+
+  handleCaptionKeyDown =
+    ({ node, getPos }: { node: ProsemirrorNode; getPos: () => number }) =>
+    (event: React.KeyboardEvent<HTMLParagraphElement>) => {
+      // Pressing Enter in the caption field should move the cursor/selection
+      // below the image and create a new paragraph.
+      if (event.key === "Enter") {
+        event.preventDefault();
+
+        const { view } = this.editor;
+        const $pos = view.state.doc.resolve(getPos() + node.nodeSize);
+        view.dispatch(
+          view.state.tr
+            .setSelection(TextSelection.near($pos))
+            .split($pos.pos)
+            .scrollIntoView()
+        );
+        view.focus();
+        return;
+      }
+
+      // Pressing Backspace in an an empty caption field focused the image.
+      if (event.key === "Backspace" && event.currentTarget.innerText === "") {
+        event.preventDefault();
+        event.stopPropagation();
+        const { view } = this.editor;
+        const $pos = view.state.doc.resolve(getPos());
+        const tr = view.state.tr.setSelection(new NodeSelection($pos));
+        view.dispatch(tr);
+        view.focus();
+        return;
+      }
+    };
+
+  handleCaptionBlur =
+    ({ node, getPos }: { node: ProsemirrorNode; getPos: () => number }) =>
+    (event: React.FocusEvent<HTMLParagraphElement>) => {
+      const caption = event.currentTarget.innerText;
+      if (caption === node.attrs.alt) {
+        return;
+      }
+
+      const { view } = this.editor;
+      const { tr } = view.state;
+
+      // update meta on object
+      const pos = getPos();
+      const transaction = tr.setNodeMarkup(pos, undefined, {
         ...node.attrs,
-        width,
-        height,
-      })
-      .setMeta("addToHistory", true);
-    const $pos = transaction.doc.resolve(getPos());
-    view.dispatch(transaction.setSelection(new NodeSelection($pos)));
-  };
-
-  handleDownload = ({ node }: { node: ProsemirrorNode }) => (
-    event: React.MouseEvent
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    downloadImageNode(node);
-  };
+        alt: caption,
+      });
+      view.dispatch(transaction);
+    };
 
   component = (props: ComponentProps) => (
     <ImageComponent
@@ -227,15 +282,10 @@ export default class Image extends SimpleImage {
       onChangeSize={this.handleChangeSize(props)}
     >
       <Caption
-        onKeyDown={this.handleKeyDown(props)}
-        onBlur={this.handleBlur(props)}
-        onMouseDown={this.handleMouseDown}
-        className="caption"
-        tabIndex={-1}
-        role="textbox"
-        contentEditable
-        suppressContentEditableWarning
-        data-caption={this.options.dictionary.imageCaptionPlaceholder}
+        onBlur={this.handleCaptionBlur(props)}
+        onKeyDown={this.handleCaptionKeyDown(props)}
+        isSelected={props.isSelected}
+        placeholder={this.options.dictionary.imageCaptionPlaceholder}
       >
         {props.node.attrs.alt}
       </Caption>
@@ -286,7 +336,7 @@ export default class Image extends SimpleImage {
   commands({ type }: { type: NodeType }) {
     return {
       ...super.commands({ type }),
-      downloadImage: () => (state: EditorState) => {
+      downloadImage: (): Command => (state) => {
         if (!(state.selection instanceof NodeSelection)) {
           return false;
         }
@@ -296,11 +346,11 @@ export default class Image extends SimpleImage {
           return false;
         }
 
-        downloadImageNode(node);
+        void downloadImageNode(node);
 
         return true;
       },
-      alignRight: () => (state: EditorState, dispatch: Dispatch) => {
+      alignRight: (): Command => (state, dispatch) => {
         if (!(state.selection instanceof NodeSelection)) {
           return false;
         }
@@ -310,10 +360,10 @@ export default class Image extends SimpleImage {
           layoutClass: "right-50",
         };
         const { selection } = state;
-        dispatch(state.tr.setNodeMarkup(selection.from, undefined, attrs));
+        dispatch?.(state.tr.setNodeMarkup(selection.from, undefined, attrs));
         return true;
       },
-      alignLeft: () => (state: EditorState, dispatch: Dispatch) => {
+      alignLeft: (): Command => (state, dispatch) => {
         if (!(state.selection instanceof NodeSelection)) {
           return false;
         }
@@ -323,10 +373,10 @@ export default class Image extends SimpleImage {
           layoutClass: "left-50",
         };
         const { selection } = state;
-        dispatch(state.tr.setNodeMarkup(selection.from, undefined, attrs));
+        dispatch?.(state.tr.setNodeMarkup(selection.from, undefined, attrs));
         return true;
       },
-      alignFullWidth: () => (state: EditorState, dispatch: Dispatch) => {
+      alignFullWidth: (): Command => (state, dispatch) => {
         if (!(state.selection instanceof NodeSelection)) {
           return false;
         }
@@ -336,16 +386,16 @@ export default class Image extends SimpleImage {
           layoutClass: "full-width",
         };
         const { selection } = state;
-        dispatch(state.tr.setNodeMarkup(selection.from, undefined, attrs));
+        dispatch?.(state.tr.setNodeMarkup(selection.from, undefined, attrs));
         return true;
       },
-      alignCenter: () => (state: EditorState, dispatch: Dispatch) => {
+      alignCenter: (): Command => (state, dispatch) => {
         if (!(state.selection instanceof NodeSelection)) {
           return false;
         }
         const attrs = { ...state.selection.node.attrs, layoutClass: null };
         const { selection } = state;
-        dispatch(state.tr.setNodeMarkup(selection.from, undefined, attrs));
+        dispatch?.(state.tr.setNodeMarkup(selection.from, undefined, attrs));
         return true;
       },
     };
@@ -360,7 +410,8 @@ export default class Image extends SimpleImage {
      * ![](image.jpg "class") -> [, "", "image.jpg", "small"]
      * ![Lorem](image.jpg "class") -> [, "Lorem", "image.jpg", "small"]
      */
-    const IMAGE_INPUT_REGEX = /!\[(?<alt>[^\][]*?)]\((?<filename>[^\][]*?)(?=“|\))“?(?<layoutclass>[^\][”]+)?”?\)$/;
+    const IMAGE_INPUT_REGEX =
+      /!\[(?<alt>[^\][]*?)]\((?<filename>[^\][]*?)(?=“|\))“?(?<layoutclass>[^\][”]+)?”?\)$/;
 
     return [
       new InputRule(IMAGE_INPUT_REGEX, (state, match, start, end) => {

@@ -1,6 +1,7 @@
 import { EditorState } from "prosemirror-state";
 import * as React from "react";
 import styled from "styled-components";
+import { Primitive } from "utility-types";
 import { IntegrationType } from "../../types";
 import type { IntegrationSettings } from "../../types";
 import { urlRegex } from "../../utils/urls";
@@ -9,6 +10,7 @@ import Abstract from "./Abstract";
 import Airtable from "./Airtable";
 import Berrycast from "./Berrycast";
 import Bilibili from "./Bilibili";
+import Canva from "./Canva";
 import Cawemo from "./Cawemo";
 import ClickUp from "./ClickUp";
 import Codepen from "./Codepen";
@@ -18,6 +20,7 @@ import Diagrams from "./Diagrams";
 import Figma from "./Figma";
 import Framer from "./Framer";
 import Gist from "./Gist";
+import GitLabSnippet from "./GitLabSnippet";
 import Gliffy from "./Gliffy";
 import GoogleCalendar from "./GoogleCalendar";
 import GoogleDocs from "./GoogleDocs";
@@ -25,11 +28,14 @@ import GoogleDrawings from "./GoogleDrawings";
 import GoogleDrive from "./GoogleDrive";
 import GoogleForms from "./GoogleForms";
 import GoogleLookerStudio from "./GoogleLookerStudio";
+import GoogleMaps from "./GoogleMaps";
 import GoogleSheets from "./GoogleSheets";
 import GoogleSlides from "./GoogleSlides";
 import Grist from "./Grist";
 import InVision from "./InVision";
+import Instagram from "./Instagram";
 import JSFiddle from "./JSFiddle";
+import Linkedin from "./Linkedin";
 import Loom from "./Loom";
 import Lucidchart from "./Lucidchart";
 import Marvel from "./Marvel";
@@ -44,6 +50,7 @@ import Spotify from "./Spotify";
 import Tldraw from "./Tldraw";
 import Trello from "./Trello";
 import Typeform from "./Typeform";
+import Valtown from "./Valtown";
 import Vimeo from "./Vimeo";
 import Whimsical from "./Whimsical";
 import YouTube from "./YouTube";
@@ -62,7 +69,7 @@ const Img = styled(Image)`
   border-radius: 2px;
   background: #fff;
   box-shadow: 0 0 0 1px #fff;
-  margin: 4px;
+  margin: 3px;
   width: 18px;
   height: 18px;
 `;
@@ -75,7 +82,7 @@ export class EmbedDescriptor {
   keywords?: string;
   tooltip?: string;
   defaultHidden?: boolean;
-  attrs?: Record<string, any>;
+  attrs?: Record<string, Primitive>;
   visible?: boolean;
   active?: (state: EditorState) => boolean;
   component: typeof React.Component | React.FC<any>;
@@ -151,6 +158,12 @@ const embeds: EmbedDescriptor[] = [
     component: Bilibili,
   }),
   new EmbedDescriptor({
+    title: "Canva",
+    keywords: "design",
+    icon: <Img src="/images/canva.png" alt="Canva" />,
+    component: Canva,
+  }),
+  new EmbedDescriptor({
     title: "Cawemo",
     keywords: "bpmn process",
     defaultHidden: true,
@@ -200,6 +213,12 @@ const embeds: EmbedDescriptor[] = [
     component: Gist,
   }),
   new EmbedDescriptor({
+    title: "GitLab Snippet",
+    keywords: "code",
+    icon: <Img src="/images/gitlab.png" alt="GitLab" />,
+    component: GitLabSnippet,
+  }),
+  new EmbedDescriptor({
     title: "Gliffy",
     keywords: "diagram",
     icon: <Img src="/images/gliffy.png" alt="Gliffy" />,
@@ -210,6 +229,13 @@ const embeds: EmbedDescriptor[] = [
     keywords: "diagrams drawio",
     icon: <Img src="/images/diagrams.png" alt="Diagrams.net" />,
     component: Diagrams,
+  }),
+  new EmbedDescriptor({
+    title: "Google Maps",
+    keywords: "maps",
+    icon: <Img src="/images/google-maps.png" alt="Google Maps" />,
+    component: GoogleMaps,
+    visible: true,
   }),
   new EmbedDescriptor({
     title: "Google Drawings",
@@ -268,6 +294,12 @@ const embeds: EmbedDescriptor[] = [
     component: Grist,
   }),
   new EmbedDescriptor({
+    title: "Instagram",
+    keywords: "post",
+    icon: <Img src="/images/instagram.png" alt="Instagram" />,
+    component: Instagram,
+  }),
+  new EmbedDescriptor({
     title: "InVision",
     keywords: "design prototype",
     defaultHidden: true,
@@ -280,6 +312,13 @@ const embeds: EmbedDescriptor[] = [
     defaultHidden: true,
     icon: <Img src="/images/jsfiddle.png" alt="JSFiddle" />,
     component: JSFiddle,
+  }),
+  new EmbedDescriptor({
+    title: "LinkedIn",
+    keywords: "post",
+    defaultHidden: true,
+    icon: <Img src="/images/linkedin.png" alt="LinkedIn" />,
+    component: Linkedin,
   }),
   new EmbedDescriptor({
     title: "Loom",
@@ -351,9 +390,9 @@ const embeds: EmbedDescriptor[] = [
     component: Spotify,
   }),
   new EmbedDescriptor({
-    title: "Tldraw (beta)",
+    title: "Tldraw",
     keywords: "draw schematics diagrams",
-    icon: <Img src="/images/tldraw.png" alt="Tldraw (beta)" />,
+    icon: <Img src="/images/tldraw.png" alt="Tldraw" />,
     component: Tldraw,
   }),
   new EmbedDescriptor({
@@ -367,6 +406,12 @@ const embeds: EmbedDescriptor[] = [
     keywords: "form survey",
     icon: <Img src="/images/typeform.png" alt="Typeform" />,
     component: Typeform,
+  }),
+  new EmbedDescriptor({
+    title: "Valtown",
+    keywords: "code",
+    icon: <Img src="/images/valtown.png" alt="Valtown" />,
+    component: Valtown,
   }),
   new EmbedDescriptor({
     title: "Vimeo",

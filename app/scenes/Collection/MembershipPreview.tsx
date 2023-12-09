@@ -1,9 +1,9 @@
-import { sortBy } from "lodash";
+import sortBy from "lodash/sortBy";
 import { observer } from "mobx-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import styled from "styled-components";
-import { PAGINATION_SYMBOL } from "~/stores/BaseStore";
+import { PAGINATION_SYMBOL } from "~/stores/base/Store";
 import Collection from "~/models/Collection";
 import User from "~/models/User";
 import Avatar from "~/components/Avatar";
@@ -53,7 +53,7 @@ const MembershipPreview = ({ collection, limit = 8 }: Props) => {
       }
     };
 
-    fetchData();
+    void fetchData();
   }, [
     isMobile,
     collection.permission,

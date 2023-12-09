@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-misused-promises */
 /* eslint-disable import/order */
 import env from "./env";
 
@@ -9,7 +10,6 @@ import Koa from "koa";
 import helmet from "koa-helmet";
 import logger from "koa-logger";
 import Router from "koa-router";
-import { uniq } from "lodash";
 import { AddressInfo } from "net";
 import stoppable from "stoppable";
 import throng from "throng";
@@ -22,21 +22,15 @@ import { checkEnv, checkPendingMigrations } from "./utils/startup";
 import { checkUpdates } from "./utils/updates";
 import onerror from "./onerror";
 import ShutdownHelper, { ShutdownOrder } from "./utils/ShutdownHelper";
-import { sequelize } from "./database/sequelize";
-import RedisAdapter from "./redis";
+import { checkConnection, sequelize } from "./storage/database";
+import RedisAdapter from "./storage/redis";
 import Metrics from "./logging/Metrics";
-
-// The default is to run all services to make development and OSS installations
-// easier to deal with. Separate services are only needed at scale.
-const serviceNames = uniq(
-  env.SERVICES.split(",").map((service) => service.trim())
-);
 
 // The number of processes to run, defaults to the number of CPU's available
 // for the web service, and 1 for collaboration during the beta period.
 let processCount = env.WEB_CONCURRENCY;
 
-if (serviceNames.includes("collaboration")) {
+if (env.SERVICES.includes("collaboration")) {
   if (processCount !== 1) {
     Logger.info(
       "lifecycle",
@@ -49,11 +43,12 @@ if (serviceNames.includes("collaboration")) {
 
 // This function will only be called once in the original process
 async function master() {
+  await checkConnection(sequelize);
   await checkEnv();
   await checkPendingMigrations();
 
-  if (env.TELEMETRY && env.ENVIRONMENT === "production") {
-    checkUpdates();
+  if (env.TELEMETRY && env.isProduction) {
+    void checkUpdates();
     setInterval(checkUpdates, 24 * 3600 * 1000);
   }
 }
@@ -93,13 +88,17 @@ async function start(id: number, disconnect: () => void) {
     try {
       await sequelize.query("SELECT 1");
     } catch (err) {
-      throw new Error("Database connection failed");
+      Logger.error("Database connection failed", err);
+      ctx.status = 500;
+      return;
     }
 
     try {
       await RedisAdapter.defaultClient.ping();
     } catch (err) {
-      throw new Error("Redis ping failed");
+      Logger.error("Redis ping failed", err);
+      ctx.status = 500;
+      return;
     }
 
     ctx.body = "OK";
@@ -108,14 +107,14 @@ async function start(id: number, disconnect: () => void) {
   app.use(router.routes());
 
   // loop through requested services at startup
-  for (const name of serviceNames) {
+  for (const name of env.SERVICES) {
     if (!Object.keys(services).includes(name)) {
       throw new Error(`Unknown service ${name}`);
     }
 
     Logger.info("lifecycle", `Starting ${name} service`);
     const init = services[name];
-    await init(app, server, serviceNames);
+    await init(app, server, env.SERVICES);
   }
 
   server.on("error", (err) => {
@@ -123,16 +122,17 @@ async function start(id: number, disconnect: () => void) {
   });
   server.on("listening", () => {
     const address = server.address();
+    const port = (address as AddressInfo).port;
 
     Logger.info(
       "lifecycle",
-      `Listening on ${useHTTPS ? "https" : "http"}://localhost:${
-        (address as AddressInfo).port
+      `Listening on ${useHTTPS ? "https" : "http"}://localhost:${port} / ${
+        env.URL
       }`
     );
   });
 
-  server.listen(normalizedPortFlag || env.PORT || "3000");
+  server.listen(normalizedPortFlag || env.PORT);
   server.setTimeout(env.REQUEST_TIMEOUT);
 
   ShutdownHelper.add(
@@ -157,12 +157,19 @@ async function start(id: number, disconnect: () => void) {
 
   ShutdownHelper.add("metrics", ShutdownOrder.last, () => Metrics.flush());
 
+  // Handle uncaught promise rejections
+  process.on("unhandledRejection", (error: Error) => {
+    Logger.error("Unhandled promise rejection", error, {
+      stack: error.stack,
+    });
+  });
+
   // Handle shutdown signals
   process.once("SIGTERM", () => ShutdownHelper.execute());
   process.once("SIGINT", () => ShutdownHelper.execute());
 }
 
-throng({
+void throng({
   master,
   worker: start,
   count: processCount,

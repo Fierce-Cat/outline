@@ -1,4 +1,4 @@
-import { find } from "lodash";
+import find from "lodash/find";
 import { observer } from "mobx-react";
 import * as React from "react";
 import { useTranslation, Trans } from "react-i18next";
@@ -30,10 +30,10 @@ function Slack() {
   const error = query.get("error");
 
   React.useEffect(() => {
-    collections.fetchPage({
+    void collections.fetchPage({
       limit: 100,
     });
-    integrations.fetchPage({
+    void integrations.fetchPage({
       limit: 100,
     });
   }, [collections, integrations]);
@@ -63,7 +63,7 @@ function Slack() {
         <Notice>
           <Trans>
             Whoops, you need to accept the permissions in Slack to connect{" "}
-            {{ appName }} to your team. Try again?
+            {{ appName }} to your workspace. Try again?
           </Trans>
         </Notice>
       )}
@@ -71,7 +71,7 @@ function Slack() {
         <Notice>
           <Trans>
             Something went wrong while authenticating your request. Please try
-            logging in again?
+            logging in again.
           </Trans>
         </Notice>
       )}

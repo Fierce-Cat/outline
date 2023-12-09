@@ -8,6 +8,7 @@ import styled, { ThemeProvider } from "styled-components";
 import { setCookie } from "tiny-cookie";
 import { s } from "@shared/styles";
 import { NavigationNode, PublicTeam } from "@shared/types";
+import type { Theme } from "~/stores/UiStore";
 import DocumentModel from "~/models/Document";
 import Error404 from "~/scenes/Error404";
 import ErrorOffline from "~/scenes/ErrorOffline";
@@ -17,6 +18,7 @@ import { TeamContext } from "~/components/TeamContext";
 import Text from "~/components/Text";
 import env from "~/env";
 import useBuildTheme from "~/hooks/useBuildTheme";
+import useCurrentUser from "~/hooks/useCurrentUser";
 import usePolicy from "~/hooks/usePolicy";
 import useStores from "~/hooks/useStores";
 import { AuthorizationError, OfflineError } from "~/utils/errors";
@@ -82,8 +84,9 @@ function useDocumentId(documentSlug: string, response?: Response) {
 }
 
 function SharedDocumentScene(props: Props) {
-  const { ui, auth } = useStores();
+  const { ui } = useStores();
   const location = useLocation();
+  const user = useCurrentUser({ rejectOnEmpty: false });
   const searchParams = React.useMemo(
     () => new URLSearchParams(location.search),
     [location.search]
@@ -92,16 +95,21 @@ function SharedDocumentScene(props: Props) {
   const [response, setResponse] = React.useState<Response>();
   const [error, setError] = React.useState<Error | null | undefined>();
   const { documents } = useStores();
-  const { shareId, documentSlug } = props.match.params;
+  const { shareId = env.ROOT_SHARE_ID, documentSlug } = props.match.params;
   const documentId = useDocumentId(documentSlug, response);
+  const themeOverride = ["dark", "light"].includes(
+    searchParams.get("theme") || ""
+  )
+    ? (searchParams.get("theme") as Theme)
+    : undefined;
   const can = usePolicy(response?.document.id ?? "");
-  const theme = useBuildTheme(response?.team?.customTheme);
+  const theme = useBuildTheme(response?.team?.customTheme, themeOverride);
 
   React.useEffect(() => {
-    if (!auth.user) {
-      changeLanguage(detectLanguage(), i18n);
+    if (!user) {
+      void changeLanguage(detectLanguage(), i18n);
     }
-  }, [auth, i18n]);
+  }, [user, i18n]);
 
   // ensure the wider page color always matches the theme
   React.useEffect(() => {
@@ -125,7 +133,7 @@ function SharedDocumentScene(props: Props) {
         setError(err);
       }
     }
-    fetchData();
+    void fetchData();
   }, [documents, documentSlug, shareId, ui]);
 
   if (error) {
@@ -177,7 +185,7 @@ function SharedDocumentScene(props: Props) {
             title={response.document.title}
             sidebar={
               response.sharedTree?.children.length ? (
-                <Sidebar rootNode={response.sharedTree} shareId={shareId} />
+                <Sidebar rootNode={response.sharedTree} shareId={shareId!} />
               ) : undefined
             }
           >

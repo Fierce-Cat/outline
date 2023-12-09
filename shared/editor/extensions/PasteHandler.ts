@@ -9,9 +9,13 @@ import isInCode from "../queries/isInCode";
 import isInList from "../queries/isInList";
 import { LANGUAGES } from "./Prism";
 
+/**
+ * Checks if the HTML string is likely coming from Dropbox Paper.
+ *
+ * @param html The HTML string to check.
+ * @returns True if the HTML string is likely coming from Dropbox Paper.
+ */
 function isDropboxPaper(html: string): boolean {
-  // The best we have to detect if a paste is likely coming from Paper
-  // In this case it's actually better to use the text version
   return html?.includes("usually-unique-id");
 }
 
@@ -21,6 +25,34 @@ function sliceSingleNode(slice: Slice) {
     slice.content.childCount === 1
     ? slice.content.firstChild
     : null;
+}
+
+/**
+ * Parses the text contents of an HTML string and returns the src of the first
+ * iframe if it exists.
+ *
+ * @param text The HTML string to parse.
+ * @returns The src of the first iframe if it exists, or undefined.
+ */
+function parseSingleIframeSrc(html: string) {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+
+    if (
+      doc.body.children.length === 1 &&
+      doc.body.firstElementChild?.tagName === "IFRAME"
+    ) {
+      const iframe = doc.body.firstElementChild;
+      const src = iframe.getAttribute("src");
+      if (src) {
+        return src;
+      }
+    }
+  } catch (e) {
+    // Ignore the million ways parsing could fail.
+  }
+  return undefined;
 }
 
 export default class PasteHandler extends Extension {
@@ -65,10 +97,16 @@ export default class PasteHandler extends Extension {
               return false;
             }
 
-            const text = event.clipboardData.getData("text/plain");
+            const { state, dispatch } = view;
+            const iframeSrc = parseSingleIframeSrc(
+              event.clipboardData.getData("text/plain")
+            );
+            const text =
+              iframeSrc && !isInCode(state)
+                ? iframeSrc
+                : event.clipboardData.getData("text/plain");
             const html = event.clipboardData.getData("text/html");
             const vscode = event.clipboardData.getData("vscode-editor-data");
-            const { state, dispatch } = view;
 
             // first check if the clipboard contents can be parsed as a single
             // url, this is mainly for allowing pasted urls to become embeds
@@ -117,10 +155,10 @@ export default class PasteHandler extends Extension {
 
             // If the users selection is currently in a code block then paste
             // as plain text, ignore all formatting and HTML content.
-            if (isInCode(view.state)) {
+            if (isInCode(state)) {
               event.preventDefault();
 
-              view.dispatch(view.state.tr.insertText(text));
+              view.dispatch(state.tr.insertText(text));
               return true;
             }
 
@@ -129,21 +167,41 @@ export default class PasteHandler extends Extension {
             // was pasted.
             const vscodeMeta = vscode ? JSON.parse(vscode) : undefined;
             const pasteCodeLanguage = vscodeMeta?.mode;
+            const supportsCodeBlock = !!state.schema.nodes.code_block;
+            const supportsCodeMark = !!state.schema.marks.code_inline;
 
             if (pasteCodeLanguage && pasteCodeLanguage !== "markdown") {
-              event.preventDefault();
-              view.dispatch(
-                view.state.tr
-                  .replaceSelectionWith(
-                    view.state.schema.nodes.code_fence.create({
-                      language: Object.keys(LANGUAGES).includes(vscodeMeta.mode)
-                        ? vscodeMeta.mode
-                        : null,
-                    })
-                  )
-                  .insertText(text)
-              );
-              return true;
+              if (text.includes("\n") && supportsCodeBlock) {
+                event.preventDefault();
+                view.dispatch(
+                  state.tr
+                    .replaceSelectionWith(
+                      state.schema.nodes.code_block.create({
+                        language: Object.keys(LANGUAGES).includes(
+                          vscodeMeta.mode
+                        )
+                          ? vscodeMeta.mode
+                          : null,
+                      })
+                    )
+                    .insertText(text)
+                );
+                return true;
+              }
+
+              if (supportsCodeMark) {
+                event.preventDefault();
+                view.dispatch(
+                  state.tr
+                    .insertText(text, state.selection.from, state.selection.to)
+                    .addMark(
+                      state.selection.from,
+                      state.selection.to + text.length,
+                      state.schema.marks.code_inline.create()
+                    )
+                );
+                return true;
+              }
             }
 
             // If the HTML on the clipboard is from Prosemirror then the best
@@ -165,6 +223,10 @@ export default class PasteHandler extends Extension {
               const paste = this.editor.pasteParser.parse(
                 normalizePastedMarkdown(text)
               );
+              if (!paste) {
+                return false;
+              }
+
               const slice = paste.slice(0);
               const tr = view.state.tr;
               let currentPos = view.state.selection.from;

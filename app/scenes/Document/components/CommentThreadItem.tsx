@@ -1,12 +1,14 @@
-import { differenceInMilliseconds, formatDistanceToNow } from "date-fns";
+import { differenceInMilliseconds } from "date-fns";
 import { toJS } from "mobx";
 import { observer } from "mobx-react";
 import { darken } from "polished";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import styled, { css } from "styled-components";
 import breakpoint from "styled-components-breakpoint";
 import { s } from "@shared/styles";
+import { dateToRelative } from "@shared/utils/date";
 import { Minute } from "@shared/utils/time";
 import Comment from "~/models/Comment";
 import Avatar from "~/components/Avatar";
@@ -16,8 +18,8 @@ import Flex from "~/components/Flex";
 import Text from "~/components/Text";
 import Time from "~/components/Time";
 import useBoolean from "~/hooks/useBoolean";
-import useToasts from "~/hooks/useToasts";
 import CommentMenu from "~/menus/CommentMenu";
+import { hover } from "~/styles";
 import CommentEditor from "./CommentEditor";
 
 /**
@@ -36,9 +38,9 @@ function useShowTime(
   }
 
   const previousTimeStamp = previousCreatedAt
-    ? formatDistanceToNow(Date.parse(previousCreatedAt))
+    ? dateToRelative(Date.parse(previousCreatedAt))
     : undefined;
-  const currentTimeStamp = formatDistanceToNow(Date.parse(createdAt));
+  const currentTimeStamp = dateToRelative(Date.parse(createdAt));
 
   const msSincePreviousComment = previousCreatedAt
     ? differenceInMilliseconds(
@@ -83,7 +85,6 @@ function CommentThreadItem({
   canReply,
 }: Props) {
   const { editor } = useDocumentContext();
-  const { showToast } = useToasts();
   const { t } = useTranslation();
   const [forceRender, setForceRender] = React.useState(0);
   const [data, setData] = React.useState(toJS(comment.data));
@@ -114,7 +115,7 @@ function CommentThreadItem({
       });
     } catch (error) {
       setEditing();
-      showToast(t("Error updating comment"), { type: "error" });
+      toast.error(t("Error updating comment"));
     }
   };
 
@@ -244,8 +245,7 @@ const Menu = styled(CommentMenu)<{ dir?: "rtl" | "ltr" }>`
   transition: opacity 100ms ease-in-out;
   color: ${s("textSecondary")};
 
-  &:hover,
-  &[aria-expanded="true"] {
+  &: ${hover}, &[aria-expanded= "true"] {
     opacity: 1;
     background: ${s("sidebarActiveBackground")};
   }
@@ -296,7 +296,7 @@ export const Bubble = styled(Flex)<{
     margin-bottom: 0;
   }
 
-  &:hover ${Menu} {
+  &: ${hover} ${Menu} {
     opacity: 1;
   }
 

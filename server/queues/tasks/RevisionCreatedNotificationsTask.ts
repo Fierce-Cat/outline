@@ -1,5 +1,5 @@
 import { subHours } from "date-fns";
-import { differenceBy } from "lodash";
+import differenceBy from "lodash/differenceBy";
 import { Op } from "sequelize";
 import { NotificationEventType } from "@shared/types";
 import { createSubscriptionsForDocument } from "@server/commands/subscriptionCreator";
@@ -11,9 +11,7 @@ import NotificationHelper from "@server/models/helpers/NotificationHelper";
 import { RevisionEvent } from "@server/types";
 import BaseTask, { TaskPriority } from "./BaseTask";
 
-export default class RevisionCreatedNotificationsTask extends BaseTask<
-  RevisionEvent
-> {
+export default class RevisionCreatedNotificationsTask extends BaseTask<RevisionEvent> {
   public async perform(event: RevisionEvent) {
     const [document, revision] = await Promise.all([
       Document.findByPk(event.documentId, { includeState: true }),
@@ -27,13 +25,17 @@ export default class RevisionCreatedNotificationsTask extends BaseTask<
     await createSubscriptionsForDocument(document, event);
 
     // Send notifications to mentioned users first
-    const before = await revision.previous();
+    const before = await revision.before();
     const oldMentions = before ? DocumentHelper.parseMentions(before) : [];
     const newMentions = DocumentHelper.parseMentions(document);
     const mentions = differenceBy(newMentions, oldMentions, "id");
     const userIdsMentioned: string[] = [];
 
     for (const mention of mentions) {
+      if (userIdsMentioned.includes(mention.modelId)) {
+        continue;
+      }
+
       const recipient = await User.findByPk(mention.modelId);
       if (
         recipient &&
@@ -100,7 +102,7 @@ export default class RevisionCreatedNotificationsTask extends BaseTask<
     });
 
     if (notification) {
-      if (env.ENVIRONMENT === "development") {
+      if (env.isDevelopment) {
         Logger.info(
           "processor",
           `would have suppressed notification to ${user.id}, but not in development`

@@ -17,11 +17,14 @@ function Grist(props: Props) {
         />
       }
       title="Grist Spreadsheet"
+      canonicalUrl={props.attrs.href}
       border
     />
   );
 }
 
 Grist.ENABLED = [new RegExp("^https?://([a-z.-]+\\.)?getgrist\\.com/(.+)$")];
+
+Grist.URL_PATH_REGEX = /(.+)/;
 
 export default Grist;

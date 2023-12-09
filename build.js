@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-disable no-undef */
 const { exec } = require("child_process");
-const { readdirSync } = require("fs");
+const { readdirSync, existsSync } = require("fs");
 
 const getDirectories = (source) =>
   readdirSync(source, { withFileTypes: true })
@@ -45,11 +45,15 @@ async function build() {
     execAsync(
       "yarn babel --extensions .ts,.tsx --quiet -d ./build/shared ./shared"
     ),
-    ...d.map(async (plugin) =>
-      execAsync(
-        `yarn babel --extensions .ts,.tsx --quiet -d "./build/plugins/${plugin}/server" "./plugins/${plugin}/server"`
-      )
-    ),
+    ...d.map(async (plugin) => {
+      const hasServer = existsSync(`./plugins/${plugin}/server`);
+
+      if (hasServer) {
+        await execAsync(
+          `yarn babel --extensions .ts,.tsx --quiet -d "./build/plugins/${plugin}/server" "./plugins/${plugin}/server"`
+        );
+      }
+    }),
   ]);
 
   // Copy static files
@@ -67,7 +71,7 @@ async function build() {
     execAsync("cp package.json ./build"),
     ...d.map(async (plugin) =>
       execAsync(
-        `cp ./plugins/${plugin}/plugin.json ./build/plugins/${plugin}/plugin.json`
+        `mkdir -p ./build/plugins/${plugin} && cp ./plugins/${plugin}/plugin.json ./build/plugins/${plugin}/plugin.json`
       )
     ),
   ]);
@@ -75,4 +79,4 @@ async function build() {
   console.log("Done!");
 }
 
-build();
+void build();

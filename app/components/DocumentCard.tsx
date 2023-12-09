@@ -14,6 +14,7 @@ import Flex from "~/components/Flex";
 import NudeButton from "~/components/NudeButton";
 import Time from "~/components/Time";
 import useStores from "~/hooks/useStores";
+import { hover } from "~/styles";
 import CollectionIcon from "./Icons/CollectionIcon";
 import EmojiIcon from "./Icons/EmojiIcon";
 import Squircle from "./Squircle";
@@ -57,10 +58,10 @@ function DocumentCard(props: Props) {
   };
 
   const handleUnpin = React.useCallback(
-    (ev) => {
+    async (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      pin?.delete();
+      await pin?.delete();
     },
     [pin]
   );
@@ -110,11 +111,12 @@ function DocumentCard(props: Props) {
 
             {document.emoji ? (
               <Squircle color={theme.slateLight}>
-                <EmojiIcon emoji={document.emoji} size={26} />
+                <EmojiIcon emoji={document.emoji} size={24} />
               </Squircle>
             ) : (
               <Squircle color={collection?.color}>
                 {collection?.icon &&
+                collection?.icon !== "letter" &&
                 collection?.icon !== "collection" &&
                 !pin?.collectionId ? (
                   <CollectionIcon collection={collection} color="white" />
@@ -179,7 +181,7 @@ const Fold = styled.svg`
 const PinButton = styled(NudeButton)`
   color: ${s("textTertiary")};
 
-  &:hover,
+  &:${hover},
   &:active {
     color: ${s("text")};
   }
@@ -209,7 +211,7 @@ const Reorderable = styled.div<{ $isDragging: boolean }>`
   z-index: ${(props) => (props.$isDragging ? 1 : "inherit")};
   pointer-events: ${(props) => (props.$isDragging ? "none" : "inherit")};
 
-  &:hover ${Actions} {
+  &: ${hover} ${Actions} {
     opacity: 1;
   }
 `;
@@ -248,7 +250,7 @@ const DocumentLink = styled(Link)<{
     opacity: 0;
   }
 
-  &:hover,
+  &:${hover},
   &:active,
   &:focus,
   &:focus-within {
@@ -278,8 +280,8 @@ const Heading = styled.h3`
   overflow: hidden;
 
   color: ${s("text")};
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-    Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-family: ${s("fontFamily")};
+  font-weight: 500;
 `;
 
 export default observer(DocumentCard);

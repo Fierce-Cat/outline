@@ -2,15 +2,14 @@ import { observer } from "mobx-react";
 import * as React from "react";
 import { useDrop } from "react-dnd";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import styled from "styled-components";
 import Collection from "~/models/Collection";
 import Document from "~/models/Document";
-import DelayedMount from "~/components/DelayedMount";
 import DocumentsLoader from "~/components/DocumentsLoader";
 import { ResizingHeightContainer } from "~/components/ResizingHeightContainer";
 import usePolicy from "~/hooks/usePolicy";
 import useStores from "~/hooks/useStores";
-import useToasts from "~/hooks/useToasts";
 import DocumentLink from "./DocumentLink";
 import DropCursor from "./DropCursor";
 import EmptyCollectionPlaceholder from "./EmptyCollectionPlaceholder";
@@ -31,7 +30,6 @@ function CollectionLinkChildren({
   prefetchDocument,
 }: Props) {
   const can = usePolicy(collection);
-  const { showToast } = useToasts();
   const manualSort = collection.sort.field === "index";
   const { documents } = useStores();
   const { t } = useTranslation();
@@ -43,14 +41,10 @@ function CollectionLinkChildren({
     accept: "document",
     drop: (item: DragObject) => {
       if (!manualSort && item.collectionId === collection?.id) {
-        showToast(
+        toast.message(
           t(
             "You can't reorder documents in an alphabetically sorted collection"
-          ),
-          {
-            type: "info",
-            timeout: 5000,
-          }
+          )
         );
         return;
       }
@@ -58,7 +52,7 @@ function CollectionLinkChildren({
       if (!collection) {
         return;
       }
-      documents.move(item.id, collection.id, undefined, 0);
+      void documents.move(item.id, collection.id, undefined, 0);
     },
     collect: (monitor) => ({
       isOverReorder: !!monitor.isOver(),
@@ -78,9 +72,7 @@ function CollectionLinkChildren({
       <DocumentsLoader collection={collection} enabled={expanded}>
         {!childDocuments && (
           <ResizingHeightContainer hideOverflow>
-            <DelayedMount>
-              <Loading />
-            </DelayedMount>
+            <Loading />
           </ResizingHeightContainer>
         )}
         {childDocuments?.map((node, index) => (

@@ -1,27 +1,32 @@
-import { flattenDeep, padStart } from "lodash";
+import flattenDeep from "lodash/flattenDeep";
+import padStart from "lodash/padStart";
 import { Node } from "prosemirror-model";
 import { Plugin, PluginKey, Transaction } from "prosemirror-state";
-import { findBlockNodes } from "prosemirror-utils";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import refractor from "refractor/core";
+import { isRemoteTransaction } from "../lib/multiplayer";
+import { findBlockNodes } from "../queries/findChildren";
 
 export const LANGUAGES = {
-  none: "None", // additional entry to disable highlighting
+  none: "Plain text", // additional entry to disable highlighting
   bash: "Bash",
-  css: "CSS",
   clike: "C",
+  cpp: "C++",
   csharp: "C#",
+  css: "CSS",
   elixir: "Elixir",
   erlang: "Erlang",
   go: "Go",
   graphql: "GraphQL",
   groovy: "Groovy",
   haskell: "Haskell",
+  hcl: "HCL",
   markup: "HTML",
   ini: "INI",
   java: "Java",
   javascript: "JavaScript",
   json: "JSON",
+  jsx: "JSX",
   kotlin: "Kotlin",
   lisp: "Lisp",
   lua: "Lua",
@@ -36,12 +41,17 @@ export const LANGUAGES = {
   ruby: "Ruby",
   rust: "Rust",
   scala: "Scala",
+  sass: "Sass",
+  scss: "SCSS",
   sql: "SQL",
   solidity: "Solidity",
   swift: "Swift",
   toml: "TOML",
+  tsx: "TSX",
   typescript: "TypeScript",
   vb: "Visual Basic",
+  verilog: "Verilog",
+  vhdl: "VHDL",
   yaml: "YAML",
   zig: "Zig",
 };
@@ -66,25 +76,31 @@ function getDecorations({
   lineNumbers?: boolean;
 }) {
   const decorations: Decoration[] = [];
-  const blocks: { node: Node; pos: number }[] = findBlockNodes(doc).filter(
-    (item) => item.node.type.name === name
-  );
+  const blocks: { node: Node; pos: number }[] = findBlockNodes(
+    doc,
+    true
+  ).filter((item) => item.node.type.name === name);
 
   function parseNodes(
     nodes: refractor.RefractorNode[],
     classNames: string[] = []
-  ): any {
-    return nodes.map((node) => {
-      if (node.type === "element") {
-        const classes = [...classNames, ...(node.properties.className || [])];
-        return parseNodes(node.children, classes);
-      }
+  ): {
+    text: string;
+    classes: string[];
+  }[] {
+    return flattenDeep(
+      nodes.map((node) => {
+        if (node.type === "element") {
+          const classes = [...classNames, ...(node.properties.className || [])];
+          return parseNodes(node.children, classes);
+        }
 
-      return {
-        text: node.value,
-        classes: classNames,
-      };
-    });
+        return {
+          text: node.value,
+          classes: classNames,
+        };
+      })
+    );
   }
 
   blocks.forEach((block) => {
@@ -105,14 +121,14 @@ function getDecorations({
         const lineCountText = new Array(lineCount)
           .fill(0)
           .map((_, i) => padStart(`${i + 1}`, gutterWidth, " "))
-          .join(" \n");
+          .join("\n");
 
         lineDecorations.push(
           Decoration.node(
             block.pos,
             block.pos + block.node.nodeSize,
             {
-              "data-line-numbers": `${lineCountText} `,
+              "data-line-numbers": `${lineCountText}`,
               style: `--line-number-gutter-width: ${gutterWidth};`,
             },
             {
@@ -123,7 +139,7 @@ function getDecorations({
       }
 
       const nodes = refractor.highlight(block.node.textContent, language);
-      const newDecorations = flattenDeep(parseNodes(nodes))
+      const newDecorations = parseNodes(nodes)
         .map((node: ParsedNode) => {
           const from = startPos;
           const to = from + node.text.length;
@@ -178,15 +194,18 @@ export default function Prism({
   return new Plugin({
     key: new PluginKey("prism"),
     state: {
-      init: (_: Plugin, { doc }) => DecorationSet.create(doc, []),
+      init: (_, { doc }) => DecorationSet.create(doc, []),
       apply: (transaction: Transaction, decorationSet, oldState, state) => {
         const nodeName = state.selection.$head.parent.type.name;
         const previousNodeName = oldState.selection.$head.parent.type.name;
         const codeBlockChanged =
           transaction.docChanged && [nodeName, previousNodeName].includes(name);
-        const ySyncEdit = !!transaction.getMeta("y-sync$");
 
-        if (!highlighted || codeBlockChanged || ySyncEdit) {
+        if (
+          !highlighted ||
+          codeBlockChanged ||
+          isRemoteTransaction(transaction)
+        ) {
           highlighted = true;
           return getDecorations({ doc: transaction.doc, name, lineNumbers });
         }
@@ -201,7 +220,9 @@ export default function Prism({
         // it render un-highlighted and then trigger a defered render of Prism
         // by updating the plugins metadata
         setTimeout(() => {
-          view.dispatch(view.state.tr.setMeta("prism", { loaded: true }));
+          if (!view.isDestroyed) {
+            view.dispatch(view.state.tr.setMeta("prism", { loaded: true }));
+          }
         }, 10);
       }
       return {};

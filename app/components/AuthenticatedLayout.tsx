@@ -12,9 +12,11 @@ import Sidebar from "~/components/Sidebar";
 import SidebarRight from "~/components/Sidebar/Right";
 import SettingsSidebar from "~/components/Sidebar/Settings";
 import type { Editor as TEditor } from "~/editor";
+import useCurrentTeam from "~/hooks/useCurrentTeam";
 import usePolicy from "~/hooks/usePolicy";
 import useStores from "~/hooks/useStores";
 import history from "~/utils/history";
+import lazyWithRetry from "~/utils/lazyWithRetry";
 import {
   searchPath,
   newDocumentPath,
@@ -25,22 +27,26 @@ import {
 } from "~/utils/routeHelpers";
 import Fade from "./Fade";
 
-const DocumentComments = React.lazy(
+const DocumentComments = lazyWithRetry(
   () => import("~/scenes/Document/components/Comments")
 );
-const DocumentHistory = React.lazy(
+const DocumentHistory = lazyWithRetry(
   () => import("~/scenes/Document/components/History")
 );
-const DocumentInsights = React.lazy(
+const DocumentInsights = lazyWithRetry(
   () => import("~/scenes/Document/components/Insights")
 );
-const CommandBar = React.lazy(() => import("~/components/CommandBar"));
+const CommandBar = lazyWithRetry(() => import("~/components/CommandBar"));
 
-const AuthenticatedLayout: React.FC = ({ children }) => {
+type Props = {
+  children?: React.ReactNode;
+};
+
+const AuthenticatedLayout: React.FC = ({ children }: Props) => {
   const { ui, auth } = useStores();
   const location = useLocation();
   const can = usePolicy(ui.activeCollectionId);
-  const { user, team } = auth;
+  const team = useCurrentTeam();
   const documentContext = useLocalStore<DocumentContextValue>(() => ({
     editor: null,
     setEditor: (editor: TEditor) => {
@@ -71,16 +77,14 @@ const AuthenticatedLayout: React.FC = ({ children }) => {
     return <ErrorSuspended />;
   }
 
-  const showSidebar = auth.authenticated && user && team;
-
-  const sidebar = showSidebar ? (
+  const sidebar = (
     <Fade>
       <Switch>
         <Route path={settingsPath()} component={SettingsSidebar} />
         <Route component={Sidebar} />
       </Switch>
     </Fade>
-  ) : undefined;
+  );
 
   const showHistory = !!matchPath(location.pathname, {
     path: matchDocumentHistory,
@@ -93,10 +97,13 @@ const AuthenticatedLayout: React.FC = ({ children }) => {
     !showHistory &&
     ui.activeDocumentId &&
     ui.commentsExpanded.includes(ui.activeDocumentId) &&
-    team?.getPreference(TeamPreference.Commenting);
+    team.getPreference(TeamPreference.Commenting);
 
   const sidebarRight = (
-    <AnimatePresence>
+    <AnimatePresence
+      initial={false}
+      key={ui.activeDocumentId ? "active" : "inactive"}
+    >
       {(showHistory || showInsights || showComments) && (
         <Route path={`/doc/${slug}`}>
           <SidebarRight>
@@ -113,12 +120,14 @@ const AuthenticatedLayout: React.FC = ({ children }) => {
 
   return (
     <DocumentContext.Provider value={documentContext}>
-      <Layout title={team?.name} sidebar={sidebar} sidebarRight={sidebarRight}>
+      <Layout title={team.name} sidebar={sidebar} sidebarRight={sidebarRight}>
         <RegisterKeyDown trigger="n" handler={goToNewDocument} />
         <RegisterKeyDown trigger="t" handler={goToSearch} />
         <RegisterKeyDown trigger="/" handler={goToSearch} />
         {children}
-        <CommandBar />
+        <React.Suspense fallback={null}>
+          <CommandBar />
+        </React.Suspense>
       </Layout>
     </DocumentContext.Provider>
   );

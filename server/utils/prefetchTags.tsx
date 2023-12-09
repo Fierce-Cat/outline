@@ -3,21 +3,32 @@ import ReactDOMServer from "react-dom/server";
 import env from "@server/env";
 import readManifestFile, { ManifestStructure } from "./readManifestFile";
 
-const isProduction = env.ENVIRONMENT === "production";
-
 const prefetchTags = [];
 
-if (process.env.AWS_S3_UPLOAD_BUCKET_URL) {
+if (env.AWS_S3_ACCELERATE_URL) {
   prefetchTags.push(
     <link
-      rel="dns-prefetch"
-      href={process.env.AWS_S3_UPLOAD_BUCKET_URL}
-      key="dns"
+      rel="preconnect"
+      href={env.AWS_S3_ACCELERATE_URL}
+      key={env.AWS_S3_ACCELERATE_URL}
+    />
+  );
+} else if (env.AWS_S3_UPLOAD_BUCKET_URL) {
+  prefetchTags.push(
+    <link
+      rel="preconnect"
+      href={env.AWS_S3_UPLOAD_BUCKET_URL}
+      key={env.AWS_S3_UPLOAD_BUCKET_URL}
     />
   );
 }
+if (env.CDN_URL) {
+  prefetchTags.push(
+    <link rel="preconnect" href={env.CDN_URL} key={env.CDN_URL} />
+  );
+}
 
-if (isProduction) {
+if (env.isProduction) {
   const manifest = readManifestFile();
 
   const returnFileAndImportsFromManifest = (
@@ -25,7 +36,7 @@ if (isProduction) {
     file: string
   ): string[] => [
     manifest[file]["file"],
-    ...manifest[file]["imports"].map(
+    ...(manifest[file]["imports"] ?? []).map(
       (entry: string) => manifest[entry]["file"]
     ),
   ];

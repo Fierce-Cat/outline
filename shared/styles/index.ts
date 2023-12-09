@@ -20,9 +20,9 @@ export const ellipsis = () => `
  *
  * @returns a theme value
  */
-export const s = (key: keyof DefaultTheme) => (props: {
-  theme: DefaultTheme;
-}) => String(props.theme[key]);
+export const s =
+  (key: keyof DefaultTheme) => (props: { theme: DefaultTheme }) =>
+    String(props.theme[key]);
 
 /**
  * Mixin to hide scrollbars.
@@ -35,5 +35,22 @@ export const hideScrollbars = () => `
   scrollbar-width: none;
   &::-webkit-scrollbar {
     display: none;
+  }
+`;
+
+/**
+ * Mixin on any component with relative positioning to add additional hidden clickable/hoverable area
+ *
+ * @param pixels
+ * @returns
+ */
+export const extraArea = (pixels: number): string => `
+  &::before {
+    position: absolute;
+    content: "";
+    top: -${pixels}px;
+    right: -${pixels}px;
+    left: -${pixels}px;
+    bottom: -${pixels}px;
   }
 `;

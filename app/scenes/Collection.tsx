@@ -12,6 +12,7 @@ import {
 } from "react-router-dom";
 import styled from "styled-components";
 import breakpoint from "styled-components-breakpoint";
+import { s } from "@shared/styles";
 import Collection from "~/models/Collection";
 import Search from "~/scenes/Search";
 import Badge from "~/components/Badge";
@@ -25,7 +26,6 @@ import PaginatedDocumentList from "~/components/PaginatedDocumentList";
 import PinnedDocuments from "~/components/PinnedDocuments";
 import PlaceholderText from "~/components/PlaceholderText";
 import Scene from "~/components/Scene";
-import Star, { AnimatedStar } from "~/components/Star";
 import Tab from "~/components/Tab";
 import Tabs from "~/components/Tabs";
 import Tooltip from "~/components/Tooltip";
@@ -83,14 +83,14 @@ function CollectionScene() {
     setError(undefined);
 
     if (collection) {
-      pins.fetchPage({
+      void pins.fetchPage({
         collectionId: collection.id,
       });
     }
   }, [pins, collection]);
 
   React.useEffect(() => {
-    async function load() {
+    async function fetchData() {
       if ((!can || !collection) && !error && !isFetching) {
         try {
           setError(undefined);
@@ -104,7 +104,7 @@ function CollectionScene() {
       }
     }
 
-    load();
+    void fetchData();
   }, [collections, isFetching, collection, error, id, can]);
 
   useCommandBarActions(
@@ -156,7 +156,7 @@ function CollectionScene() {
             <Empty collection={collection} />
           ) : (
             <>
-              <HeadingWithIcon $isStarred={collection.isStarred}>
+              <HeadingWithIcon>
                 <HeadingIcon collection={collection} size={40} expanded />
                 {collection.name}
                 {collection.isPrivate && (
@@ -169,99 +169,105 @@ function CollectionScene() {
                     <Badge>{t("Private")}</Badge>
                   </Tooltip>
                 )}
-                <StarButton collection={collection} size={32} />
               </HeadingWithIcon>
-              <CollectionDescription collection={collection} />
 
               <PinnedDocuments
                 pins={pins.inCollection(collection.id)}
                 canUpdate={can.update}
               />
+              <CollectionDescription collection={collection} />
 
-              <Tabs>
-                <Tab to={collectionPath(collection.url)} exact>
-                  {t("Documents")}
-                </Tab>
-                <Tab to={collectionPath(collection.url, "updated")} exact>
-                  {t("Recently updated")}
-                </Tab>
-                <Tab to={collectionPath(collection.url, "published")} exact>
-                  {t("Recently published")}
-                </Tab>
-                <Tab to={collectionPath(collection.url, "old")} exact>
-                  {t("Least recently updated")}
-                </Tab>
-                <Tab to={collectionPath(collection.url, "alphabetical")} exact>
-                  {t("A–Z")}
-                </Tab>
-              </Tabs>
-              <Switch>
-                <Route path={collectionPath(collection.url, "alphabetical")}>
-                  <PaginatedDocumentList
-                    key="alphabetical"
-                    documents={documents.alphabeticalInCollection(
-                      collection.id
-                    )}
-                    fetch={documents.fetchAlphabetical}
-                    options={{
-                      collectionId: collection.id,
-                    }}
-                  />
-                </Route>
-                <Route path={collectionPath(collection.url, "old")}>
-                  <PaginatedDocumentList
-                    key="old"
-                    documents={documents.leastRecentlyUpdatedInCollection(
-                      collection.id
-                    )}
-                    fetch={documents.fetchLeastRecentlyUpdated}
-                    options={{
-                      collectionId: collection.id,
-                    }}
-                  />
-                </Route>
-                <Route path={collectionPath(collection.url, "recent")}>
-                  <Redirect to={collectionPath(collection.url, "published")} />
-                </Route>
-                <Route path={collectionPath(collection.url, "published")}>
-                  <PaginatedDocumentList
-                    key="published"
-                    documents={documents.recentlyPublishedInCollection(
-                      collection.id
-                    )}
-                    fetch={documents.fetchRecentlyPublished}
-                    options={{
-                      collectionId: collection.id,
-                    }}
-                    showPublished
-                  />
-                </Route>
-                <Route path={collectionPath(collection.url, "updated")}>
-                  <PaginatedDocumentList
-                    key="updated"
-                    documents={documents.recentlyUpdatedInCollection(
-                      collection.id
-                    )}
-                    fetch={documents.fetchRecentlyUpdated}
-                    options={{
-                      collectionId: collection.id,
-                    }}
-                  />
-                </Route>
-                <Route path={collectionPath(collection.url)} exact>
-                  <PaginatedDocumentList
-                    documents={documents.rootInCollection(collection.id)}
-                    fetch={documents.fetchPage}
-                    options={{
-                      collectionId: collection.id,
-                      parentDocumentId: null,
-                      sort: collection.sort.field,
-                      direction: collection.sort.direction,
-                    }}
-                    showParentDocuments
-                  />
-                </Route>
-              </Switch>
+              <Documents>
+                <Tabs>
+                  <Tab to={collectionPath(collection.url)} exact>
+                    {t("Documents")}
+                  </Tab>
+                  <Tab to={collectionPath(collection.url, "updated")} exact>
+                    {t("Recently updated")}
+                  </Tab>
+                  <Tab to={collectionPath(collection.url, "published")} exact>
+                    {t("Recently published")}
+                  </Tab>
+                  <Tab to={collectionPath(collection.url, "old")} exact>
+                    {t("Least recently updated")}
+                  </Tab>
+                  <Tab
+                    to={collectionPath(collection.url, "alphabetical")}
+                    exact
+                  >
+                    {t("A–Z")}
+                  </Tab>
+                </Tabs>
+                <Switch>
+                  <Route path={collectionPath(collection.url, "alphabetical")}>
+                    <PaginatedDocumentList
+                      key="alphabetical"
+                      documents={documents.alphabeticalInCollection(
+                        collection.id
+                      )}
+                      fetch={documents.fetchAlphabetical}
+                      options={{
+                        collectionId: collection.id,
+                      }}
+                    />
+                  </Route>
+                  <Route path={collectionPath(collection.url, "old")}>
+                    <PaginatedDocumentList
+                      key="old"
+                      documents={documents.leastRecentlyUpdatedInCollection(
+                        collection.id
+                      )}
+                      fetch={documents.fetchLeastRecentlyUpdated}
+                      options={{
+                        collectionId: collection.id,
+                      }}
+                    />
+                  </Route>
+                  <Route path={collectionPath(collection.url, "recent")}>
+                    <Redirect
+                      to={collectionPath(collection.url, "published")}
+                    />
+                  </Route>
+                  <Route path={collectionPath(collection.url, "published")}>
+                    <PaginatedDocumentList
+                      key="published"
+                      documents={documents.recentlyPublishedInCollection(
+                        collection.id
+                      )}
+                      fetch={documents.fetchRecentlyPublished}
+                      options={{
+                        collectionId: collection.id,
+                      }}
+                      showPublished
+                    />
+                  </Route>
+                  <Route path={collectionPath(collection.url, "updated")}>
+                    <PaginatedDocumentList
+                      key="updated"
+                      documents={documents.recentlyUpdatedInCollection(
+                        collection.id
+                      )}
+                      fetch={documents.fetchRecentlyUpdated}
+                      options={{
+                        collectionId: collection.id,
+                      }}
+                    />
+                  </Route>
+                  <Route path={collectionPath(collection.url)} exact>
+                    <PaginatedDocumentList
+                      documents={documents.rootInCollection(collection.id)}
+                      fetch={documents.fetchPage}
+                      options={{
+                        collectionId: collection.id,
+                        parentDocumentId: null,
+                        sort: collection.sort.field,
+                        direction: collection.sort.direction,
+                      }}
+                      showParentDocuments
+                    />
+                  </Route>
+                </Switch>
+              </Documents>
             </>
           )}
         </CenteredContent>
@@ -277,36 +283,14 @@ function CollectionScene() {
   );
 }
 
-const StarButton = styled(Star)`
+const Documents = styled.div`
   position: relative;
-  top: 0;
-  left: 10px;
-  overflow: hidden;
-  width: 24px;
-
-  svg {
-    position: relative;
-    left: -4px;
-  }
+  background: ${s("background")};
 `;
 
-const HeadingWithIcon = styled(Heading)<{ $isStarred: boolean }>`
+const HeadingWithIcon = styled(Heading)`
   display: flex;
   align-items: center;
-
-  ${AnimatedStar} {
-    opacity: ${(props) => (props.$isStarred ? "1 !important" : 0)};
-  }
-
-  &:hover {
-    ${AnimatedStar} {
-      opacity: 0.5;
-
-      &:hover {
-        opacity: 1;
-      }
-    }
-  }
 
   ${breakpoint("tablet")`
     margin-left: -40px;

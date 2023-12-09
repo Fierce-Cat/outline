@@ -268,7 +268,7 @@ export type GroupEvent = BaseEvent &
   );
 
 export type IntegrationEvent = BaseEvent & {
-  name: "integrations.create" | "integrations.update";
+  name: "integrations.create" | "integrations.update" | "integrations.delete";
   modelId: string;
 };
 
@@ -358,7 +358,7 @@ export type WebhookSubscriptionEvent = BaseEvent & {
 };
 
 export type NotificationEvent = BaseEvent & {
-  name: "notifications.create";
+  name: "notifications.create" | "notifications.update";
   modelId: string;
   teamId: string;
   userId: string;
@@ -391,15 +391,15 @@ export type NotificationMetadata = {
 };
 
 export type JSONExportMetadata = {
-  /* The version of the export, allows updated structure in the future. */
+  /** The version of the export, allows updated structure in the future. */
   exportVersion: number;
-  /* The version of the application that created the export. */
+  /** The version of the application that created the export. */
   version: string;
-  /* The date the export was created. */
+  /** The date the export was created. */
   createdAt: string;
-  /* The ID of the user that created the export. */
+  /** The ID of the user that created the export. */
   createdById: string;
-  /* The email of the user that created the export. */
+  /** The email of the user that created the export. */
   createdByEmail: string | null;
 };
 
@@ -445,4 +445,8 @@ export type CollectionJSONExport = {
   attachments: {
     [id: string]: AttachmentJSONExport;
   };
+};
+
+export type UnfurlResolver = {
+  unfurl: (url: string) => Promise<any>;
 };

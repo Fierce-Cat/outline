@@ -1,12 +1,15 @@
 import invariant from "invariant";
-import { sortBy, filter, find, isUndefined } from "lodash";
+import filter from "lodash/filter";
+import find from "lodash/find";
+import isUndefined from "lodash/isUndefined";
+import sortBy from "lodash/sortBy";
 import { action, computed } from "mobx";
 import Share from "~/models/Share";
 import { client } from "~/utils/ApiClient";
-import BaseStore, { RPCAction } from "./BaseStore";
 import RootStore from "./RootStore";
+import Store, { RPCAction } from "./base/Store";
 
-export default class SharesStore extends BaseStore<Share> {
+export default class SharesStore extends Store<Share> {
   actions = [
     RPCAction.Info,
     RPCAction.List,
@@ -57,7 +60,7 @@ export default class SharesStore extends BaseStore<Share> {
     this.isFetching = true;
 
     try {
-      const res = await client.post(`/${this.modelName}s.info`, {
+      const res = await client.post(`/${this.apiEndpoint}.info`, {
         documentId,
       });
 

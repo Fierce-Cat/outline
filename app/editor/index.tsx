@@ -14,20 +14,29 @@ import {
   Node as ProsemirrorNode,
 } from "prosemirror-model";
 import { EditorState, Selection, Plugin, Transaction } from "prosemirror-state";
-import { Decoration, EditorView } from "prosemirror-view";
+import {
+  AddMarkStep,
+  RemoveMarkStep,
+  ReplaceAroundStep,
+  ReplaceStep,
+} from "prosemirror-transform";
+import { Decoration, EditorView, NodeViewConstructor } from "prosemirror-view";
 import * as React from "react";
 import styled, { css, DefaultTheme, ThemeProps } from "styled-components";
+import insertFiles from "@shared/editor/commands/insertFiles";
 import Styles from "@shared/editor/components/Styles";
 import { EmbedDescriptor } from "@shared/editor/embeds";
-import Extension, { CommandFactory } from "@shared/editor/lib/Extension";
+import Extension, {
+  CommandFactory,
+  WidgetProps,
+} from "@shared/editor/lib/Extension";
 import ExtensionManager from "@shared/editor/lib/ExtensionManager";
 import { MarkdownSerializer } from "@shared/editor/lib/markdown/serializer";
 import textBetween from "@shared/editor/lib/textBetween";
 import Mark from "@shared/editor/marks/Mark";
-import { richExtensions, withComments } from "@shared/editor/nodes";
+import { basicExtensions as extensions } from "@shared/editor/nodes";
 import Node from "@shared/editor/nodes/Node";
 import ReactNode from "@shared/editor/nodes/ReactNode";
-import { SuggestionsMenuType } from "@shared/editor/plugins/Suggestions";
 import { EventType } from "@shared/editor/types";
 import { UserPreferences } from "@shared/types";
 import ProsemirrorHelper from "@shared/utils/ProsemirrorHelper";
@@ -36,19 +45,12 @@ import Flex from "~/components/Flex";
 import { PortalContext } from "~/components/Portal";
 import { Dictionary } from "~/hooks/useDictionary";
 import Logger from "~/utils/Logger";
-import BlockMenu from "./components/BlockMenu";
 import ComponentView from "./components/ComponentView";
 import EditorContext from "./components/EditorContext";
-import EmojiMenu from "./components/EmojiMenu";
 import { SearchResult } from "./components/LinkEditor";
 import LinkToolbar from "./components/LinkToolbar";
-import MentionMenu from "./components/MentionMenu";
 import SelectionToolbar from "./components/SelectionToolbar";
 import WithTheme from "./components/WithTheme";
-
-const extensions = withComments(richExtensions);
-
-export { default as Extension } from "@shared/editor/lib/Extension";
 
 export type Props = {
   /** An optional identifier for the editor context. It is used to persist local settings */
@@ -70,7 +72,9 @@ export type Props = {
   /** If the editor should not allow editing */
   readOnly?: boolean;
   /** If the editor should still allow editing checkboxes when it is readOnly */
-  readOnlyWriteCheckboxes?: boolean;
+  canUpdate?: boolean;
+  /** If the editor should still allow commenting when it is readOnly */
+  canComment?: boolean;
   /** A dictionary of translated strings used in the editor */
   dictionary: Dictionary;
   /** The reading direction of the text content, if known */
@@ -114,8 +118,6 @@ export type Props = {
     href: string,
     event: MouseEvent | React.MouseEvent<HTMLButtonElement>
   ) => void;
-  /** Callback when user hovers on any link in the document */
-  onHoverLink?: (element: HTMLAnchorElement) => boolean;
   /** Callback when user presses any key with document focused */
   onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   /** Collection of embed types to render in the document */
@@ -124,8 +126,6 @@ export type Props = {
   userPreferences?: UserPreferences | null;
   /** Whether embeds should be rendered without an iframe */
   embedsDisabled?: boolean;
-  /** Callback when a toast message is triggered (eg "link copied") */
-  onShowToast: (message: string) => void;
   className?: string;
   /** Optional style overrides for the container*/
   style?: React.CSSProperties;
@@ -140,12 +140,8 @@ type State = {
   isEditorFocused: boolean;
   /** If the toolbar for a text selection is visible */
   selectionToolbarOpen: boolean;
-  /** If a suggestions menu is visible */
-  suggestionsMenuOpen: SuggestionsMenuType | false;
   /** If the insert link toolbar is visible */
   linkToolbarOpen: boolean;
-  /** The query for the suggestion menu */
-  query: string;
 };
 
 /**
@@ -174,10 +170,8 @@ export class Editor extends React.PureComponent<
   state: State = {
     isRTL: false,
     isEditorFocused: false,
-    suggestionsMenuOpen: false,
     selectionToolbarOpen: false,
     linkToolbarOpen: false,
-    query: "",
   };
 
   isBlurred = true;
@@ -193,33 +187,20 @@ export class Editor extends React.PureComponent<
   keymaps: Plugin[];
   inputRules: InputRule[];
   nodeViews: {
-    [name: string]: (
-      node: ProsemirrorNode,
-      view: EditorView,
-      getPos: () => number,
-      decorations: Decoration<{
-        [key: string]: any;
-      }>[]
-    ) => ComponentView;
+    [name: string]: NodeViewConstructor;
   };
 
+  widgets: { [name: string]: (props: WidgetProps) => React.ReactElement };
   nodes: { [name: string]: NodeSpec };
   marks: { [name: string]: MarkSpec };
   commands: Record<string, CommandFactory>;
   rulePlugins: PluginSimple[];
   events = new EventEmitter();
+  mutationObserver?: MutationObserver;
 
   public constructor(props: Props & ThemeProps<DefaultTheme>) {
     super(props);
     this.events.on(EventType.LinkToolbarOpen, this.handleOpenLinkToolbar);
-    this.events.on(
-      EventType.SuggestionsMenuOpen,
-      this.handleOpenSuggestionsMenu
-    );
-    this.events.on(
-      EventType.SuggestionsMenuClose,
-      this.handleCloseSuggestionsMenu
-    );
   }
 
   /**
@@ -231,7 +212,7 @@ export class Editor extends React.PureComponent<
     window.addEventListener("theme-changed", this.dispatchThemeChanged);
 
     if (this.props.scrollTo) {
-      this.scrollToAnchor(this.props.scrollTo);
+      void this.scrollToAnchor(this.props.scrollTo);
     }
 
     this.calculateDir();
@@ -261,7 +242,7 @@ export class Editor extends React.PureComponent<
     }
 
     if (this.props.scrollTo && this.props.scrollTo !== prevProps.scrollTo) {
-      this.scrollToAnchor(this.props.scrollTo);
+      void this.scrollToAnchor(this.props.scrollTo);
     }
 
     // Focus at the end of the document if switching from readOnly and autoFocus
@@ -277,7 +258,6 @@ export class Editor extends React.PureComponent<
     if (
       !this.isBlurred &&
       !this.state.isEditorFocused &&
-      !this.state.suggestionsMenuOpen &&
       !this.state.linkToolbarOpen &&
       !this.state.selectionToolbarOpen
     ) {
@@ -288,7 +268,6 @@ export class Editor extends React.PureComponent<
     if (
       this.isBlurred &&
       (this.state.isEditorFocused ||
-        this.state.suggestionsMenuOpen ||
         this.state.linkToolbarOpen ||
         this.state.selectionToolbarOpen)
     ) {
@@ -299,6 +278,8 @@ export class Editor extends React.PureComponent<
 
   public componentWillUnmount(): void {
     window.removeEventListener("theme-changed", this.dispatchThemeChanged);
+    this.view?.destroy();
+    this.mutationObserver?.disconnect();
   }
 
   private init() {
@@ -306,6 +287,7 @@ export class Editor extends React.PureComponent<
     this.nodes = this.createNodes();
     this.marks = this.createMarks();
     this.schema = this.createSchema();
+    this.widgets = this.createWidgets();
     this.plugins = this.createPlugins();
     this.rulePlugins = this.createRulePlugins();
     this.keymaps = this.createKeymaps();
@@ -345,29 +327,26 @@ export class Editor extends React.PureComponent<
   private createNodeViews() {
     return this.extensions.extensions
       .filter((extension: ReactNode) => extension.component)
-      .reduce((nodeViews, extension: ReactNode) => {
-        const nodeView = (
-          node: ProsemirrorNode,
-          view: EditorView,
-          getPos: () => number,
-          decorations: Decoration<{
-            [key: string]: any;
-          }>[]
-        ) =>
-          new ComponentView(extension.component, {
-            editor: this,
-            extension,
-            node,
-            view,
-            getPos,
-            decorations,
-          });
-
-        return {
+      .reduce(
+        (nodeViews, extension: ReactNode) => ({
           ...nodeViews,
-          [extension.name]: nodeView,
-        };
-      }, {});
+          [extension.name]: (
+            node: ProsemirrorNode,
+            view: EditorView,
+            getPos: () => number,
+            decorations: Decoration[]
+          ) =>
+            new ComponentView(extension.component, {
+              editor: this,
+              extension,
+              node,
+              view,
+              getPos,
+              decorations,
+            }),
+        }),
+        {}
+      );
   }
 
   private createCommands() {
@@ -375,6 +354,10 @@ export class Editor extends React.PureComponent<
       schema: this.schema,
       view: this.view,
     });
+  }
+
+  private createWidgets() {
+    return this.extensions.widgets;
   }
 
   private createNodes() {
@@ -435,7 +418,7 @@ export class Editor extends React.PureComponent<
   private createDocument(content: string | object) {
     // Looks like Markdown
     if (typeof content === "string") {
-      return this.parser.parse(content);
+      return this.parser.parse(content) || undefined;
     }
 
     return ProsemirrorNode.fromJSON(this.schema, content);
@@ -448,9 +431,17 @@ export class Editor extends React.PureComponent<
 
     const isEditingCheckbox = (tr: Transaction) =>
       tr.steps.some(
-        (step: any) =>
-          step.slice?.content?.firstChild?.type.name ===
-          this.schema.nodes.checkbox_item.name
+        (step) =>
+          (step instanceof ReplaceAroundStep || step instanceof ReplaceStep) &&
+          step.slice.content?.firstChild?.type.name ===
+            this.schema.nodes.checkbox_item.name
+      );
+
+    const isEditingComment = (tr: Transaction) =>
+      tr.steps.some(
+        (step) =>
+          (step instanceof AddMarkStep || step instanceof RemoveMarkStep) &&
+          step.mark.type.name === this.schema.marks.comment.name
       );
 
     const self = this; // eslint-disable-line
@@ -459,14 +450,17 @@ export class Editor extends React.PureComponent<
         blur: this.handleEditorBlur,
         focus: this.handleEditorFocus,
       },
+      attributes: {
+        translate: this.props.readOnly ? "yes" : "no",
+      },
       state: this.createState(this.props.value),
       editable: () => !this.props.readOnly,
       nodeViews: this.nodeViews,
       dispatchTransaction(transaction) {
         // callback is bound to have the view instance as its this binding
-        const { state, transactions } = this.state.applyTransaction(
-          transaction
-        );
+        const { state, transactions } = (
+          this.state as EditorState
+        ).applyTransaction(transaction);
 
         this.updateState(state);
 
@@ -476,8 +470,8 @@ export class Editor extends React.PureComponent<
         if (
           transactions.some((tr) => tr.docChanged) &&
           (!self.props.readOnly ||
-            (self.props.readOnlyWriteCheckboxes &&
-              transactions.some(isEditingCheckbox)))
+            (self.props.canUpdate && transactions.some(isEditingCheckbox)) ||
+            (self.props.canComment && transactions.some(isEditingComment)))
         ) {
           self.handleChange();
         }
@@ -496,16 +490,20 @@ export class Editor extends React.PureComponent<
     return view;
   }
 
-  public scrollToAnchor(hash: string) {
+  public async scrollToAnchor(hash: string) {
     if (!hash) {
       return;
     }
 
     try {
-      const element = document.querySelector(hash);
-      if (element) {
-        setTimeout(() => element.scrollIntoView({ behavior: "smooth" }), 0);
-      }
+      this.mutationObserver?.disconnect();
+      this.mutationObserver = observe(
+        hash,
+        (element) => {
+          element.scrollIntoView();
+        },
+        this.elementRef.current || undefined
+      );
     } catch (err) {
       // querySelector will throw an error if the hash begins with a number
       // or contains a period. This is protected against now by safeSlugify
@@ -520,9 +518,8 @@ export class Editor extends React.PureComponent<
       return trim ? content.trim() : content;
     }
 
-    return (trim
-      ? ProsemirrorHelper.trim(this.view.state.doc)
-      : this.view.state.doc
+    return (
+      trim ? ProsemirrorHelper.trim(this.view.state.doc) : this.view.state.doc
     ).toJSON();
   };
 
@@ -569,6 +566,25 @@ export class Editor extends React.PureComponent<
     // Have Safari remove the caret.
     window?.getSelection()?.removeAllRanges();
   };
+
+  /**
+   * Insert files at the current selection.
+   * =
+   * @param event The source event
+   * @param files The files to insert
+   * @returns True if the files were inserted
+   */
+  public insertFiles = (
+    event: React.ChangeEvent<HTMLInputElement>,
+    files: File[]
+  ) =>
+    insertFiles(
+      this.view,
+      event,
+      this.view.state.selection.to,
+      files,
+      this.props
+    );
 
   /**
    * Returns true if the trimmed content of the editor is an empty string.
@@ -668,8 +684,6 @@ export class Editor extends React.PureComponent<
     this.setState((state) => ({
       ...state,
       selectionToolbarOpen: true,
-      suggestionsMenuOpen: false,
-      query: "",
     }));
   };
 
@@ -686,9 +700,7 @@ export class Editor extends React.PureComponent<
   private handleOpenLinkToolbar = () => {
     this.setState((state) => ({
       ...state,
-      suggestionsMenuOpen: false,
       linkToolbarOpen: true,
-      query: "",
     }));
   };
 
@@ -699,47 +711,9 @@ export class Editor extends React.PureComponent<
     }));
   };
 
-  private handleOpenSuggestionsMenu = (data: {
-    type: SuggestionsMenuType;
-    query: string;
-  }) => {
-    this.setState((state) => ({
-      ...state,
-      suggestionsMenuOpen: data.type,
-      query: data.query,
-    }));
-  };
-
-  private handleCloseSuggestionsMenu = (
-    type: SuggestionsMenuType,
-    insertNewLine?: boolean
-  ) => {
-    if (insertNewLine) {
-      const transaction = this.view.state.tr.split(
-        this.view.state.selection.to
-      );
-      this.view.dispatch(transaction);
-      this.view.focus();
-    }
-    if (this.state.suggestionsMenuOpen !== type) {
-      return;
-    }
-    this.setState((state) => ({
-      ...state,
-      suggestionsMenuOpen: false,
-    }));
-  };
-
   public render() {
-    const {
-      dir,
-      readOnly,
-      readOnlyWriteCheckboxes,
-      grow,
-      style,
-      className,
-      onKeyDown,
-    } = this.props;
+    const { dir, readOnly, canUpdate, grow, style, className, onKeyDown } =
+      this.props;
     const { isRTL } = this.state;
 
     return (
@@ -759,83 +733,38 @@ export class Editor extends React.PureComponent<
               rtl={isRTL}
               grow={grow}
               readOnly={readOnly}
-              readOnlyWriteCheckboxes={readOnlyWriteCheckboxes}
+              readOnlyWriteCheckboxes={canUpdate}
               focusedCommentId={this.props.focusedCommentId}
               editorStyle={this.props.editorStyle}
               ref={this.elementRef}
             />
-            {!readOnly && this.view && (
-              <>
-                {this.marks.link && (
-                  <LinkToolbar
-                    isActive={this.state.linkToolbarOpen}
-                    onCreateLink={this.props.onCreateLink}
-                    onSearchLink={this.props.onSearchLink}
-                    onClickLink={this.props.onClickLink}
-                    onClose={this.handleCloseLinkToolbar}
-                  />
-                )}
-                {this.nodes.emoji && (
-                  <EmojiMenu
-                    rtl={isRTL}
-                    isActive={
-                      this.state.suggestionsMenuOpen ===
-                      SuggestionsMenuType.Emoji
-                    }
-                    search={this.state.query}
-                    onClose={(insertNewLine) =>
-                      this.handleCloseSuggestionsMenu(
-                        SuggestionsMenuType.Emoji,
-                        insertNewLine
-                      )
-                    }
-                  />
-                )}
-                {this.nodes.mention && (
-                  <MentionMenu
-                    rtl={isRTL}
-                    isActive={
-                      this.state.suggestionsMenuOpen ===
-                      SuggestionsMenuType.Mention
-                    }
-                    search={this.state.query}
-                    onClose={(insertNewLine) =>
-                      this.handleCloseSuggestionsMenu(
-                        SuggestionsMenuType.Mention,
-                        insertNewLine
-                      )
-                    }
-                  />
-                )}
-                <SelectionToolbar
-                  rtl={isRTL}
-                  isTemplate={this.props.template === true}
-                  onOpen={this.handleOpenSelectionToolbar}
-                  onClose={this.handleCloseSelectionToolbar}
-                  onSearchLink={this.props.onSearchLink}
-                  onClickLink={this.props.onClickLink}
-                  onCreateLink={this.props.onCreateLink}
-                />
-                <BlockMenu
-                  rtl={isRTL}
-                  isActive={
-                    this.state.suggestionsMenuOpen === SuggestionsMenuType.Block
-                  }
-                  search={this.state.query}
-                  onClose={(insertNewLine) =>
-                    this.handleCloseSuggestionsMenu(
-                      SuggestionsMenuType.Block,
-                      insertNewLine
-                    )
-                  }
-                  uploadFile={this.props.uploadFile}
-                  onLinkToolbarOpen={this.handleOpenLinkToolbar}
-                  onFileUploadStart={this.props.onFileUploadStart}
-                  onFileUploadStop={this.props.onFileUploadStop}
-                  embeds={this.props.embeds}
-                />
-              </>
+            {this.view && (
+              <SelectionToolbar
+                rtl={isRTL}
+                readOnly={readOnly}
+                canUpdate={this.props.canUpdate}
+                canComment={this.props.canComment}
+                isTemplate={this.props.template === true}
+                onOpen={this.handleOpenSelectionToolbar}
+                onClose={this.handleCloseSelectionToolbar}
+                onSearchLink={this.props.onSearchLink}
+                onClickLink={this.props.onClickLink}
+                onCreateLink={this.props.onCreateLink}
+              />
             )}
+            {!readOnly && this.view && this.marks.link && (
+              <LinkToolbar
+                isActive={this.state.linkToolbarOpen}
+                onCreateLink={this.props.onCreateLink}
+                onSearchLink={this.props.onSearchLink}
+                onClickLink={this.props.onClickLink}
+                onClose={this.handleCloseLinkToolbar}
+              />
+            )}
+            {this.widgets &&
+              Object.values(this.widgets).map((Widget, index) => (
+                <Widget key={String(index)} rtl={isRTL} readOnly={readOnly} />
+              ))}
           </Flex>
         </EditorContext.Provider>
       </PortalContext.Provider>
@@ -854,11 +783,36 @@ const EditorContainer = styled(Styles)<{ focusedCommentId?: string }>`
 `;
 
 const LazyLoadedEditor = React.forwardRef<Editor, Props>(
-  (props: Props, ref) => (
-    <WithTheme>
-      {(theme) => <Editor theme={theme} {...props} ref={ref} />}
-    </WithTheme>
-  )
+  function _LazyLoadedEditor(props: Props, ref) {
+    return (
+      <WithTheme>
+        {(theme) => <Editor theme={theme} {...props} ref={ref} />}
+      </WithTheme>
+    );
+  }
 );
+
+const observe = (
+  selector: string,
+  callback: (element: HTMLElement) => void,
+  targetNode = document.body
+) => {
+  const observer = new MutationObserver((mutations) => {
+    const match = [...mutations]
+      .flatMap((mutation) => [...mutation.addedNodes])
+      .find((node: HTMLElement) => node.matches?.(selector));
+    if (match) {
+      callback(match as HTMLElement);
+    }
+  });
+
+  if (targetNode.querySelector(selector)) {
+    callback(targetNode.querySelector(selector) as HTMLElement);
+  } else {
+    observer.observe(targetNode, { childList: true, subtree: true });
+  }
+
+  return observer;
+};
 
 export default LazyLoadedEditor;

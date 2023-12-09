@@ -1,10 +1,11 @@
 import { ToolsIcon, TrashIcon, UserIcon } from "outline-icons";
 import * as React from "react";
-import stores from "~/stores";
+import { toast } from "sonner";
 import { createAction } from "~/actions";
 import { DeveloperSection } from "~/actions/sections";
 import env from "~/env";
 import { client } from "~/utils/ApiClient";
+import Logger from "~/utils/Logger";
 import { deleteAllDatabases } from "~/utils/developer";
 
 export const clearIndexedDB = createAction({
@@ -14,7 +15,7 @@ export const clearIndexedDB = createAction({
   section: DeveloperSection,
   perform: async ({ t }) => {
     await deleteAllDatabases();
-    stores.toasts.showToast(t("IndexedDB cache deleted"));
+    toast.message(t("IndexedDB cache deleted"));
   },
 });
 
@@ -28,23 +29,45 @@ export const createTestUsers = createAction({
 
     try {
       await client.post("/developer.create_test_users", { count });
-      stores.toasts.showToast(`${count} test users created`);
+      toast.message(`${count} test users created`);
     } catch (err) {
-      stores.toasts.showToast(err.message, { type: "error" });
+      toast.error(err.message);
     }
   },
 });
 
+export const createToast = createAction({
+  name: "Create toast",
+  section: DeveloperSection,
+  visible: () => env.ENVIRONMENT === "development",
+  perform: async () => {
+    toast.message("Hello world", {
+      duration: 30000,
+    });
+  },
+});
+
+export const toggleDebugLogging = createAction({
+  name: ({ t }) => t("Toggle debug logging"),
+  icon: <ToolsIcon />,
+  section: DeveloperSection,
+  perform: async ({ t }) => {
+    Logger.debugLoggingEnabled = !Logger.debugLoggingEnabled;
+    toast.message(
+      Logger.debugLoggingEnabled
+        ? t("Debug logging enabled")
+        : t("Debug logging disabled")
+    );
+  },
+});
+
 export const developer = createAction({
-  name: ({ t }) => t("Developer"),
+  name: ({ t }) => t("Development"),
   keywords: "debug",
   icon: <ToolsIcon />,
   iconInContextMenu: false,
   section: DeveloperSection,
-  visible: ({ event }) =>
-    env.ENVIRONMENT === "development" ||
-    (event instanceof KeyboardEvent && event.altKey),
-  children: [clearIndexedDB, createTestUsers],
+  children: [clearIndexedDB, toggleDebugLogging, createToast, createTestUsers],
 });
 
 export const rootDeveloperActions = [developer];

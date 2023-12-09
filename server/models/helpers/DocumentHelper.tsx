@@ -3,25 +3,27 @@ import {
   yDocToProsemirrorJSON,
 } from "@getoutline/y-prosemirror";
 import { JSDOM } from "jsdom";
-import { escapeRegExp, startCase } from "lodash";
+import escapeRegExp from "lodash/escapeRegExp";
+import startCase from "lodash/startCase";
 import { Node } from "prosemirror-model";
+import { Transaction } from "sequelize";
 import * as Y from "yjs";
 import textBetween from "@shared/editor/lib/textBetween";
+import { AttachmentPreset } from "@shared/types";
 import {
   getCurrentDateAsString,
   getCurrentDateTimeAsString,
   getCurrentTimeAsString,
   unicodeCLDRtoBCP47,
 } from "@shared/utils/date";
-import unescape from "@shared/utils/unescape";
+import attachmentCreator from "@server/commands/attachmentCreator";
 import { parser, schema } from "@server/editor";
 import { trace } from "@server/logging/tracing";
-import type Document from "@server/models/Document";
-import type Revision from "@server/models/Revision";
-import User from "@server/models/User";
+import { Document, Revision, User } from "@server/models";
+import FileStorage from "@server/storage/files";
 import diff from "@server/utils/diff";
 import parseAttachmentIds from "@server/utils/parseAttachmentIds";
-import { getSignedUrl } from "@server/utils/s3";
+import parseImages from "@server/utils/parseImages";
 import Attachment from "../Attachment";
 import ProsemirrorHelper from "./ProsemirrorHelper";
 
@@ -30,6 +32,8 @@ type HTMLOptions = {
   includeTitle?: boolean;
   /** Whether to include style tags in the generated HTML (defaults to true) */
   includeStyles?: boolean;
+  /** Whether to include the Mermaid script in the generated HTML (defaults to false) */
+  includeMermaid?: boolean;
   /** Whether to include styles to center diff (defaults to true) */
   centered?: boolean;
   /**
@@ -54,7 +58,7 @@ export default class DocumentHelper {
       Y.applyUpdate(ydoc, document.state);
       return Node.fromJSON(schema, yDocToProsemirrorJSON(ydoc, "default"));
     }
-    return parser.parse(document.text);
+    return parser.parse(document.text) || Node.fromJSON(schema, {});
   }
 
   /**
@@ -83,7 +87,7 @@ export default class DocumentHelper {
    * @returns The document title and content as a Markdown string
    */
   static toMarkdown(document: Document | Revision) {
-    const text = unescape(document.text);
+    const text = document.text.replace(/\n\\\n/g, "\n\n");
 
     if (document.version) {
       return `# ${document.title}\n\n${text}`;
@@ -105,13 +109,23 @@ export default class DocumentHelper {
     let output = ProsemirrorHelper.toHTML(node, {
       title: options?.includeTitle !== false ? document.title : undefined,
       includeStyles: options?.includeStyles,
+      includeMermaid: options?.includeMermaid,
       centered: options?.centered,
     });
 
-    if (options?.signedUrls && "teamId" in document) {
+    if (options?.signedUrls) {
+      const teamId =
+        document instanceof Document
+          ? document.teamId
+          : (await document.$get("document"))?.teamId;
+
+      if (!teamId) {
+        return output;
+      }
+
       output = await DocumentHelper.attachmentsToSignedUrls(
         output,
-        document.teamId,
+        teamId,
         typeof options.signedUrls === "number" ? options.signedUrls : undefined
       );
     }
@@ -141,10 +155,10 @@ export default class DocumentHelper {
   static async diff(
     before: Document | Revision | null,
     after: Revision,
-    options?: HTMLOptions
+    { signedUrls, ...options }: HTMLOptions = {}
   ) {
     if (!before) {
-      return await DocumentHelper.toHTML(after, options);
+      return await DocumentHelper.toHTML(after, { ...options, signedUrls });
     }
 
     const beforeHTML = await DocumentHelper.toHTML(before, options);
@@ -154,10 +168,26 @@ export default class DocumentHelper {
 
     // Extract the content from the article tag and diff the HTML, we don't
     // care about the surrounding layout and stylesheets.
-    const diffedContentAsHTML = diff(
+    let diffedContentAsHTML = diff(
       beforeDOM.window.document.getElementsByTagName("article")[0].innerHTML,
       afterDOM.window.document.getElementsByTagName("article")[0].innerHTML
     );
+
+    // Sign only the URLS in the diffed content
+    if (signedUrls) {
+      const teamId =
+        before instanceof Document
+          ? before.teamId
+          : (await before.$get("document"))?.teamId;
+
+      if (teamId) {
+        diffedContentAsHTML = await DocumentHelper.attachmentsToSignedUrls(
+          diffedContentAsHTML,
+          teamId,
+          typeof signedUrls === "number" ? signedUrls : undefined
+        );
+      }
+    }
 
     // Inject the diffed content into the original document with styling and
     // serialize back to a string.
@@ -194,6 +224,13 @@ export default class DocumentHelper {
 
     const containsDiffElement = (node: Element | null) =>
       node && node.innerHTML.includes("data-operation-index");
+
+    // The diffing lib isn't able to catch all changes currently, e.g. changing
+    // the type of a mark will result in an empty diff.
+    // see: https://github.com/tnwinc/htmldiff.js/issues/10
+    if (!containsDiffElement(doc.querySelector("#content"))) {
+      return;
+    }
 
     // We use querySelectorAll to get a static NodeList as we'll be modifying
     // it as we iterate, rather than getting content.childNodes.
@@ -307,6 +344,7 @@ export default class DocumentHelper {
     expiresIn = 3000
   ) {
     const attachmentIds = parseAttachmentIds(text);
+
     await Promise.all(
       attachmentIds.map(async (id) => {
         const attachment = await Attachment.findOne({
@@ -317,7 +355,11 @@ export default class DocumentHelper {
         });
 
         if (attachment) {
-          const signedUrl = await getSignedUrl(attachment.key, expiresIn);
+          const signedUrl = await FileStorage.getSignedUrl(
+            attachment.key,
+            expiresIn
+          );
+
           text = text.replace(
             new RegExp(escapeRegExp(attachment.redirectUrl), "g"),
             signedUrl
@@ -341,9 +383,58 @@ export default class DocumentHelper {
       : undefined;
 
     return text
-      .replace("{date}", startCase(getCurrentDateAsString(locales)))
-      .replace("{time}", startCase(getCurrentTimeAsString(locales)))
-      .replace("{datetime}", startCase(getCurrentDateTimeAsString(locales)));
+      .replace(/{date}/g, startCase(getCurrentDateAsString(locales)))
+      .replace(/{time}/g, startCase(getCurrentTimeAsString(locales)))
+      .replace(/{datetime}/g, startCase(getCurrentDateTimeAsString(locales)));
+  }
+
+  /**
+   * Replaces remote and base64 encoded images in the given text with attachment
+   * urls and uploads the images to the storage provider.
+   *
+   * @param text The text to replace the images in
+   * @param user The user context
+   * @param ip The IP address of the user
+   * @param transaction The transaction to use for the database operations
+   * @returns The text with the images replaced
+   */
+  static async replaceImagesWithAttachments(
+    text: string,
+    user: User,
+    ip?: string,
+    transaction?: Transaction
+  ) {
+    let output = text;
+    const images = parseImages(text);
+
+    await Promise.all(
+      images.map(async (image) => {
+        // Skip attempting to fetch images that are not valid urls
+        try {
+          new URL(image.src);
+        } catch {
+          return;
+        }
+
+        const attachment = await attachmentCreator({
+          name: image.alt ?? "image",
+          url: image.src,
+          preset: AttachmentPreset.DocumentAttachment,
+          user,
+          ip,
+          transaction,
+        });
+
+        if (attachment) {
+          output = output.replace(
+            new RegExp(escapeRegExp(image.src), "g"),
+            attachment.redirectUrl
+          );
+        }
+      })
+    );
+
+    return output;
   }
 
   /**

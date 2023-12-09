@@ -2,6 +2,7 @@ import { observer } from "mobx-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { useMenuState } from "reakit/Menu";
+import { toast } from "sonner";
 import User from "~/models/User";
 import ContextMenu from "~/components/ContextMenu";
 import OverflowMenuButton from "~/components/ContextMenu/OverflowMenuButton";
@@ -18,7 +19,6 @@ import { deleteUserActionFactory } from "~/actions/definitions/users";
 import useActionContext from "~/hooks/useActionContext";
 import usePolicy from "~/hooks/usePolicy";
 import useStores from "~/hooks/useStores";
-import useToasts from "~/hooks/useToasts";
 
 type Props = {
   user: User;
@@ -31,7 +31,6 @@ function UserMenu({ user }: Props) {
     modal: true,
   });
   const can = usePolicy(user.id);
-  const { showToast } = useToasts();
   const context = useActionContext({
     isContextMenu: true,
   });
@@ -116,9 +115,9 @@ function UserMenu({ user }: Props) {
   );
 
   const handleRevoke = React.useCallback(
-    (ev: React.SyntheticEvent) => {
+    async (ev: React.SyntheticEvent) => {
       ev.preventDefault();
-      users.delete(user);
+      await users.delete(user);
     },
     [users, user]
   );
@@ -129,23 +128,20 @@ function UserMenu({ user }: Props) {
 
       try {
         await users.resendInvite(user);
-        showToast(t(`Invite was resent to ${user.name}`), { type: "success" });
+        toast.success(t(`Invite was resent to ${user.name}`));
       } catch (err) {
-        showToast(
-          err.message ?? t(`An error occurred while sending the invite`),
-          {
-            type: "error",
-          }
+        toast.error(
+          err.message ?? t(`An error occurred while sending the invite`)
         );
       }
     },
-    [users, user, t, showToast]
+    [users, user, t]
   );
 
   const handleActivate = React.useCallback(
-    (ev: React.SyntheticEvent) => {
+    async (ev: React.SyntheticEvent) => {
       ev.preventDefault();
-      users.activate(user);
+      await users.activate(user);
     },
     [users, user]
   );

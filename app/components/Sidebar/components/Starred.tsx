@@ -3,8 +3,11 @@ import { observer } from "mobx-react";
 import * as React from "react";
 import { useDrop } from "react-dnd";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import Star from "~/models/Star";
+import DelayedMount from "~/components/DelayedMount";
 import Flex from "~/components/Flex";
+import usePaginatedRequest from "~/hooks/usePaginatedRequest";
 import useStores from "~/hooks/useStores";
 import DropCursor from "./DropCursor";
 import Header from "./Header";
@@ -17,41 +20,21 @@ import StarredLink from "./StarredLink";
 const STARRED_PAGINATION_LIMIT = 10;
 
 function Starred() {
-  const [fetchError, setFetchError] = React.useState();
-  const [displayedStarsCount, setDisplayedStarsCount] = React.useState(
-    STARRED_PAGINATION_LIMIT
-  );
   const { stars } = useStores();
   const { t } = useTranslation();
 
-  const fetchResults = React.useCallback(
-    async (offset = 0) => {
-      try {
-        await stars.fetchPage({
-          limit: STARRED_PAGINATION_LIMIT + 1,
-          offset,
-        });
-      } catch (error) {
-        setFetchError(error);
-      }
-    },
-    [stars]
+  const { loading, next, end, error, page } = usePaginatedRequest<Star>(
+    stars.fetchPage,
+    {
+      limit: STARRED_PAGINATION_LIMIT,
+    }
   );
-
-  React.useEffect(() => {
-    fetchResults();
-  }, []);
-
-  const handleShowMore = async () => {
-    await fetchResults(displayedStarsCount);
-    setDisplayedStarsCount((prev) => prev + STARRED_PAGINATION_LIMIT);
-  };
 
   // Drop to reorder document
   const [{ isOverReorder, isDraggingAnyStar }, dropToReorder] = useDrop({
     accept: "star",
     drop: async (item: { star: Star }) => {
-      item.star.save({
+      void item.star.save({
         index: fractionalIndex(null, stars.orderedData[0].index),
       });
     },
@@ -60,6 +43,10 @@ function Starred() {
       isDraggingAnyStar: monitor.getItemType() === "star",
     }),
   });
+
+  if (error) {
+    toast.error(t("Could not load starred documents"));
+  }
 
   if (!stars.orderedData.length) {
     return null;
@@ -77,20 +64,24 @@ function Starred() {
                 position="top"
               />
             )}
-            {stars.orderedData.slice(0, displayedStarsCount).map((star) => (
-              <StarredLink key={star.id} star={star} />
-            ))}
-            {stars.orderedData.length > displayedStarsCount && (
+            {stars.orderedData
+              .slice(0, page * STARRED_PAGINATION_LIMIT)
+              .map((star) => (
+                <StarredLink key={star.id} star={star} />
+              ))}
+            {!end && (
               <SidebarLink
-                onClick={handleShowMore}
+                onClick={next}
                 label={`${t("Show more")}…`}
                 disabled={stars.isFetching}
                 depth={0}
               />
             )}
-            {(stars.isFetching || fetchError) && !stars.orderedData.length && (
+            {loading && (
               <Flex column>
-                <PlaceholderCollections />
+                <DelayedMount>
+                  <PlaceholderCollections />
+                </DelayedMount>
               </Flex>
             )}
           </Relative>

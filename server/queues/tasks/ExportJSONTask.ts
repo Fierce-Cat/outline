@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import { omit } from "lodash";
+import omit from "lodash/omit";
 import { NavigationNode } from "@shared/types";
 import { parser } from "@server/editor";
 import env from "@server/env";
@@ -25,7 +25,11 @@ export default class ExportJSONTask extends ExportTask {
 
     // serial to avoid overloading, slow and steady wins the race
     for (const collection of collections) {
-      await this.addCollectionToArchive(zip, collection);
+      await this.addCollectionToArchive(
+        zip,
+        collection,
+        fileOperation.includeAttachments
+      );
     }
 
     await this.addMetadataToArchive(zip, fileOperation);
@@ -46,13 +50,17 @@ export default class ExportJSONTask extends ExportTask {
 
     zip.file(
       `metadata.json`,
-      env.ENVIRONMENT === "development"
+      env.isDevelopment
         ? JSON.stringify(metadata, null, 2)
         : JSON.stringify(metadata)
     );
   }
 
-  private async addCollectionToArchive(zip: JSZip, collection: Collection) {
+  private async addCollectionToArchive(
+    zip: JSZip,
+    collection: Collection,
+    includeAttachments: boolean
+  ) {
     const output: CollectionJSONExport = {
       collection: {
         ...omit(presentCollection(collection), ["url"]),
@@ -75,31 +83,39 @@ export default class ExportJSONTask extends ExportTask {
           continue;
         }
 
-        const attachments = await Attachment.findAll({
-          where: {
-            teamId: document.teamId,
-            id: parseAttachmentIds(document.text),
-          },
-        });
+        const attachments = includeAttachments
+          ? await Attachment.findAll({
+              where: {
+                teamId: document.teamId,
+                id: parseAttachmentIds(document.text),
+              },
+            })
+          : [];
 
         await Promise.all(
           attachments.map(async (attachment) => {
-            try {
-              zip.file(attachment.key, attachment.buffer, {
+            zip.file(
+              attachment.key,
+              new Promise<Buffer>((resolve) => {
+                attachment.buffer.then(resolve).catch((err) => {
+                  Logger.warn(`Failed to read attachment from storage`, {
+                    attachmentId: attachment.id,
+                    teamId: attachment.teamId,
+                    error: err.message,
+                  });
+                  resolve(Buffer.from(""));
+                });
+              }),
+              {
                 date: attachment.updatedAt,
                 createFolders: true,
-              });
+              }
+            );
 
-              output.attachments[attachment.id] = {
-                ...omit(presentAttachment(attachment), "url"),
-                key: attachment.key,
-              };
-            } catch (err) {
-              Logger.error(
-                `Failed to add attachment to archive: ${attachment.key}`,
-                err
-              );
-            }
+            output.attachments[attachment.id] = {
+              ...omit(presentAttachment(attachment), "url"),
+              key: attachment.key,
+            };
           })
         );
 
@@ -132,7 +148,7 @@ export default class ExportJSONTask extends ExportTask {
 
     zip.file(
       `${serializeFilename(collection.name)}.json`,
-      env.ENVIRONMENT === "development"
+      env.isDevelopment
         ? JSON.stringify(output, null, 2)
         : JSON.stringify(output)
     );

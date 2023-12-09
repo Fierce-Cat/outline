@@ -5,26 +5,15 @@ import {
   NodeType,
   Schema,
 } from "prosemirror-model";
-import { EditorState, TextSelection } from "prosemirror-state";
-import Suggestion from "../extensions/Suggestion";
+import { Command, TextSelection } from "prosemirror-state";
+import { Primitive } from "utility-types";
+import Extension from "../lib/Extension";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
-import { SuggestionsMenuType } from "../plugins/Suggestions";
 import mentionRule from "../rules/mention";
-import { Dispatch } from "../types";
 
-export default class Mention extends Suggestion {
+export default class Mention extends Extension {
   get type() {
     return "node";
-  }
-
-  get defaultOptions() {
-    return {
-      type: SuggestionsMenuType.Mention,
-      // ported from https://github.com/tc39/proposal-regexp-unicode-property-escapes#unicode-aware-version-of-w
-      openRegex: /(?:^|\s)@([\p{L}\p{M}\d]+)?$/u,
-      closeRegex: /(?:^|\s)@(([\p{L}\p{M}\d]*\s+)|(\s+[\p{L}\p{M}\d]+))$/u,
-      enabledInTable: true,
-    };
   }
 
   get name() {
@@ -63,11 +52,12 @@ export default class Mention extends Suggestion {
       toDOM: (node) => [
         "span",
         {
-          class: `${node.type.name}`,
+          class: `${node.type.name} use-hover-preview`,
           id: node.attrs.id,
           "data-type": node.attrs.type,
           "data-id": node.attrs.modelId,
           "data-actorId": node.attrs.actorId,
+          "data-url": `mention://${node.attrs.id}/${node.attrs.type}/${node.attrs.modelId}`,
         },
         node.attrs.label,
       ],
@@ -80,24 +70,22 @@ export default class Mention extends Suggestion {
   }
 
   commands({ type }: { type: NodeType; schema: Schema }) {
-    return (attrs: Record<string, string>) => (
-      state: EditorState,
-      dispatch: Dispatch
-    ) => {
-      const { selection } = state;
-      const position =
-        selection instanceof TextSelection
-          ? selection.$cursor?.pos
-          : selection.$to.pos;
-      if (position === undefined) {
-        return false;
-      }
+    return (attrs: Record<string, Primitive>): Command =>
+      (state, dispatch) => {
+        const { selection } = state;
+        const position =
+          selection instanceof TextSelection
+            ? selection.$cursor?.pos
+            : selection.$to.pos;
+        if (position === undefined) {
+          return false;
+        }
 
-      const node = type.create(attrs);
-      const transaction = state.tr.insert(position, node);
-      dispatch(transaction);
-      return true;
-    };
+        const node = type.create(attrs);
+        const transaction = state.tr.insert(position, node);
+        dispatch?.(transaction);
+        return true;
+      };
   }
 
   toMarkdown(state: MarkdownSerializerState, node: ProsemirrorNode) {

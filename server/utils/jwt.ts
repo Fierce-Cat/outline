@@ -1,10 +1,9 @@
 import { subMinutes } from "date-fns";
-import invariant from "invariant";
 import JWT from "jsonwebtoken";
 import { Team, User } from "@server/models";
 import { AuthenticationError } from "../errors";
 
-function getJWTPayload(token: string) {
+export function getJWTPayload(token: string) {
   let payload;
 
   try {
@@ -20,10 +19,13 @@ function getJWTPayload(token: string) {
   }
 }
 
-export async function getUserForJWT(token: string): Promise<User> {
+export async function getUserForJWT(
+  token: string,
+  allowedTypes = ["session", "transfer"]
+): Promise<User> {
   const payload = getJWTPayload(token);
 
-  if (payload.type === "email-signin") {
+  if (!allowedTypes.includes(payload.type)) {
     throw AuthenticationError("Invalid token");
   }
 
@@ -82,8 +84,9 @@ export async function getUserForEmailSigninToken(token: string): Promise<User> {
     }
   }
 
-  const user = await User.scope("withTeam").findByPk(payload.id);
-  invariant(user, "User not found");
+  const user = await User.scope("withTeam").findByPk(payload.id, {
+    rejectOnEmpty: true,
+  });
 
   try {
     JWT.verify(token, user.jwtSecret);

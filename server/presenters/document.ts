@@ -27,6 +27,7 @@ async function presentDocument(
     url: document.url,
     urlId: document.urlId,
     title: document.title,
+    emoji: document.emoji,
     text,
     tasks: document.tasks,
     createdAt: document.createdAt,
@@ -37,8 +38,6 @@ async function presentDocument(
     archivedAt: document.archivedAt,
     deletedAt: document.deletedAt,
     teamId: document.teamId,
-    template: document.template,
-    templateId: document.templateId,
     collaboratorIds: [],
     revision: document.revisionCount,
     fullWidth: document.fullWidth,
@@ -57,6 +56,9 @@ async function presentDocument(
     data.createdBy = presentUser(document.createdBy);
     data.updatedBy = presentUser(document.updatedBy);
     data.collaboratorIds = document.collaboratorIds;
+    data.templateId = document.templateId;
+    data.template = document.template;
+    data.insightsEnabled = document.insightsEnabled;
   }
 
   return data;

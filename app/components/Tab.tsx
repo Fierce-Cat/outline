@@ -1,12 +1,28 @@
 import { m } from "framer-motion";
+import { LocationDescriptor } from "history";
+import isEqual from "lodash/isEqual";
+import queryString from "query-string";
 import * as React from "react";
 import styled, { useTheme } from "styled-components";
 import { s } from "@shared/styles";
 import NavLink from "~/components/NavLink";
+import { hover } from "~/styles";
 
 type Props = Omit<React.ComponentProps<typeof NavLink>, "children"> & {
-  to: string;
+  /**
+   * The path to match against the current location.
+   */
+  to: LocationDescriptor;
+  /**
+   * If true, the tab will only be active if the path matches exactly.
+   */
   exact?: boolean;
+  /**
+   * If true, the tab will only be active if the query string matches exactly.
+   * By default query string parameters are ignored for location mathing.
+   */
+  exactQueryString?: boolean;
+  children?: React.ReactNode;
 };
 
 const TabLink = styled(NavLink)`
@@ -21,7 +37,7 @@ const TabLink = styled(NavLink)`
   margin-right: 24px;
   padding: 6px 0;
 
-  &:hover {
+  &: ${hover} {
     color: ${s("textSecondary")};
   }
 `;
@@ -43,24 +59,38 @@ const transition = {
   damping: 30,
 };
 
-const Tab: React.FC<Props> = ({ children, ...rest }) => {
+const Tab: React.FC<Props> = ({
+  children,
+  exact,
+  exactQueryString,
+  ...rest
+}: Props) => {
   const theme = useTheme();
   const activeStyle = {
     color: theme.textSecondary,
   };
 
   return (
-    <TabLink {...rest} activeStyle={activeStyle}>
-      {(match) => (
+    <TabLink
+      {...rest}
+      exact={exact || exactQueryString}
+      activeStyle={activeStyle}
+    >
+      {(match, location) => (
         <>
           {children}
-          {match && (
-            <Active
-              layoutId="underline"
-              initial={false}
-              transition={transition}
-            />
-          )}
+          {match &&
+            (!exactQueryString ||
+              isEqual(
+                queryString.parse(location.search ?? ""),
+                queryString.parse(rest.to.search as string)
+              )) && (
+              <Active
+                layoutId="underline"
+                initial={false}
+                transition={transition}
+              />
+            )}
         </>
       )}
     </TabLink>

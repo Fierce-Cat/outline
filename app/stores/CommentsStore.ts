@@ -1,16 +1,15 @@
 import invariant from "invariant";
-import { filter, orderBy } from "lodash";
+import filter from "lodash/filter";
+import orderBy from "lodash/orderBy";
 import { action, runInAction, computed } from "mobx";
 import Comment from "~/models/Comment";
 import Document from "~/models/Document";
 import { PaginationParams } from "~/types";
 import { client } from "~/utils/ApiClient";
-import BaseStore from "./BaseStore";
 import RootStore from "./RootStore";
+import Store from "./base/Store";
 
-export default class CommentsStore extends BaseStore<Comment> {
-  apiEndpoint = "comments";
-
+export default class CommentsStore extends Store<Comment> {
   constructor(rootStore: RootStore) {
     super(rootStore, Comment);
   }
